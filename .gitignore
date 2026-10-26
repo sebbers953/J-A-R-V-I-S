@@ -11,3 +11,10 @@ dist/
 !.env.example
 __pycache__/
 *.py[cod]
+
+# Local assistant memory and exports must stay outside source control
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+jarvis-memory-export*.json

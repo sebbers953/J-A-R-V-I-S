@@ -10,3 +10,10 @@ test('invalid IPC payloads and duplicate identifiers are rejected', () => {
  for (const value of [null, {}, [{id:'a',text:' ',done:false,date:'2026-10-26'}], [{id:'a',text:'Task',done:'yes',date:'2026-10-26'}]]) assert.throws(()=>validateTasks(value));
  const task = {id:'a',text:'Task',done:false,date:'2026-10-26'}; assert.throws(()=>validateTasks([task,task]));
 });
+test('stale HUD saves cannot erase a concurrently created or completed voice task',()=>{
+ const {applyTaskSnapshot}=require('../dist/electron/electron/tasks.js');
+ const one={id:'one',text:'Existing',done:false,date:'2026-10-26'};const voice={id:'voice',text:'Voice task',done:false,date:'2026-10-26'};
+ assert.throws(()=>applyTaskSnapshot([one,voice],[{...one,done:true}],[one]));
+ assert.throws(()=>applyTaskSnapshot([{...one,done:true}],[one],[one]));
+ assert.deepEqual(applyTaskSnapshot([one],[{...one,done:true}],[one]),[{...one,done:true}]);
+});

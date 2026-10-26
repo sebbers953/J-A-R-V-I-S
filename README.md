@@ -60,7 +60,7 @@ JARVIS_TTS_VOICE=bm_george
 # JARVIS_SPEECH_DIR=/your/existing/speech/directory
 ```
 
-An exported setting takes precedence over the corresponding `.env` entry. Restart JARVIS after edits. If you choose another local model, download that exact tag with `ollama pull` first. There is deliberately no remote URL override: the application only connects to `http://127.0.0.1:11434`. Model names containing cloud tags or remote URL namespaces are rejected. Each turn checks `/api/show`; models with `remote_host`/`remote_model` metadata are blocked before inference, including aliases. A local GGUF chat model is required. There is no fallback to Grok, Fish, OpenAI, Ollama cloud, web search or external tools.
+An exported setting takes precedence over the corresponding `.env` entry. Restart JARVIS after edits. If you choose another local model, download that exact tag with `ollama pull` first. There is deliberately no remote URL override: the application only connects to `http://127.0.0.1:11434`. Model names containing cloud tags or remote URL namespaces are rejected. Each turn checks `/api/show`; models with `remote_host`/`remote_model` metadata are blocked before inference, including aliases. A local GGUF chat model is required. There is no fallback to Grok, Fish, OpenAI, Ollama cloud, web search or remote tools.
 
 Run the daemon with `OLLAMA_NO_CLOUD=1` as `start:ollama` does, so the service also disallows cloud inference. Running the Ollama GUI with its own settings is a different service lifecycle; setting this variable only on JARVIS does not reconfigure an already-running daemon. See [Ollama's local-only documentation](https://github.com/ollama/ollama/blob/main/docs/faq.mdx#how-do-i-disable-ollamas-cloud-features).
 
@@ -70,19 +70,19 @@ The current Whisper/Kokoro paths are preserved. API-key values and raw daemon er
 
 Click the microphone to begin **LISTENING**, speak, then click **Send utterance**. Clicking the microphone before sending discards the capture and enters **MUTED**. Capture is capped at 45 seconds / 8 MB. The input is encoded as WAV in memory; FFmpeg converts it to 16 kHz mono PCM16 for local Whisper.
 
-States: **IDLE → LISTENING → PROCESSING → SPEAKING → IDLE**. PROCESSING covers local transcription and Ollama's response. Input tracks stop before processing and stay off throughout playback, preventing self-transcription. Clicking the microphone while processing or speaking cancels the turn and mutes. The existing waveform uses real microphone samples and then real playback samples; the existing core pulses with output audio. No always-on listening or wake phrase is enabled.
+States: **IDLE → LISTENING → THINKING → SPEAKING → IDLE** (with MUTED, INTERRUPTED and ERROR). THINKING, internally PROCESSING, covers local transcription and Ollama's response. Input tracks stop before processing and stay off throughout playback, preventing self-transcription. Clicking the microphone while processing or speaking cancels the turn and mutes. The existing waveform uses real microphone samples and then real playback samples; the existing core pulses with output audio. No always-on listening or wake phrase is enabled.
 
-The exact local model response text is displayed and passed to local Kokoro, whose WAV plays through your default Mac output device. Three recent exchanges stay visible; ten exchanges remain in session memory and clear on restart. Ollama receives the existing JARVIS personality plus session messages through its native `/api/chat` endpoint with `stream:false`. No computer-control tools are enabled. The assistant is instructed never to claim it performed an action: it cannot control your computer.
+The exact local model response text is displayed and passed to local Kokoro, whose WAV plays through your default Mac output device. Three recent exchanges stay visible; ten exchanges remain in session memory and clear on restart. Ollama receives the existing JARVIS personality plus session messages through its native `/api/chat` endpoint with `stream:false`. Explicit approved commands are handled by a deterministic local dispatcher before chat; the model itself has no executable tools.
 
 Microphone permission failure shows **MICROPHONE PERMISSION REQUIRED**. Allow Electron in System Settings → Privacy & Security → Microphone. Ollama needs no credentials. A stopped service reports that Ollama must be started; a missing model reports the appropriate `ollama pull` setup action. Cloud models, insufficient memory, malformed responses and timeouts have separate safe errors. Missing local tools/models show **Local speech-to-text** or **Local text-to-speech** setup errors directing you to `npm run setup:voice`. Ollama failures are separately labeled. A TTS failure retains the local model's visible text and conversation context. Terminal logs contain normalized stage/engine/timing/failure metadata only; no raw server body is printed.
 
 Temporary audio/transcript files live in private OS temporary directories and are deleted after success, cancellation or failure. They are never added to the Daily Tasks database. Text goes to Kokoro over stdin, not in process arguments. Local programs run without a shell; their raw output is discarded. Forced app termination/power loss may leave an OS temporary directory, which can be removed normally.
 
-The HUD layout, panels, cyan styling, animations, task checkboxes, telemetry and clock are preserved. Only voice status labels/protocol labels reflect the local pipeline. Escape/header button toggles fullscreen; ⌘Q quits. `npm start` launches the existing production build; `npm run dev` builds then launches.
+The HUD layout, panels, cyan styling, animations, task checkboxes, telemetry and clock are preserved. Compact memory/control and conversation options are integrated below the existing microphone strip. Escape/header button toggles fullscreen; ⌘Q quits. `npm start` launches the existing production build; `npm run dev` builds then launches.
 
 ## Tasks and system data
 
-Tasks are scoped to local calendar dates; prior days are retained in `app.getPath('userData')/tasks.json` (normally `~/Library/Application Support/jarvis-hud/tasks.json` on macOS). Saves are atomic and validated. Read failures leave existing data intact and disable editing. CPU is measured from OS interval deltas, memory from OS totals, storage from home-volume statistics, uptime from the OS, and battery from macOS `pmset`. Unavailable readings are marked unavailable. Linux telemetry describes the cloud host, not your Mac.
+Tasks are scoped to local calendar dates; prior days are retained in `app.getPath('userData')/tasks.json` (normally `~/Library/Application Support/jarvis-hud/tasks.json` on macOS). Saves are atomic and validated. Read failures leave existing data intact and disable editing. CPU is measured from OS interval deltas, memory from the macOS VM counters described below, storage from home-volume statistics, uptime from the OS, and battery from macOS `pmset`. Unavailable readings are marked unavailable. Linux telemetry describes the cloud host, not your Mac.
 
 ## Tests
 
@@ -110,3 +110,68 @@ A packaged/signable macOS distribution is outside this setup; it needs microphon
 RAM telemetry on macOS uses `vm_stat`'s reported page size (including Apple Silicon's 16 KB pages). Used RAM is anonymous pages minus purgeable pages, plus wired pages and physical compressor pages. File-backed pages plus purgeable pages are reported separately as reclaimable cache; logical pages stored in the compressor and swap are never added to used RAM. Hover over the existing RAM gauge/detail for cache, wired, compressed and swap values. Values labelled GB use binary GiB, matching the 24 GB physical-capacity convention. Pressure comes independently from `kern.memorystatus_vm_pressure_level` (green/yellow/red); unsupported systems show unavailable. Missing or inconsistent memory samples show a dash, never a full gauge.
 
 To compare on your Mac, open Activity Monitor → Memory while JARVIS is running. Compare Memory Used, Wired Memory, Compressed, Cached Files and Swap Used with the gauge/tooltip, allowing for the two-second sampling interval. The used figure approximates Activity Monitor using public VM counters; its private accounting and rapidly changing snapshots can differ. Pressure is independent of allocation percentage. No Activity Monitor comparison can be performed in the Linux build environment.
+
+## Local memory, approved Mac actions and conversation
+
+No new package or speech-model download is needed for this upgrade. Electron 39 bundles the SQLite API used here. Keep your existing `.env`, Ollama `llama3.1:8b`, Whisper and Kokoro `bm_george` setup. From the repository on your Mac:
+
+```bash
+git pull --ff-only origin main
+npm ci
+npm run typecheck
+npm run build
+npm test
+npm start
+```
+
+Keep your existing local Ollama service running. If it is stopped, run `npm run start:ollama` in a separate terminal; do not start a second service if port 11434 is already occupied. `npm run diagnose:ollama` remains available to verify an actual local inference.
+
+### Explicit durable memory
+
+Use **Memory & controls** under the microphone strip to inspect, add, edit, export or delete notes, or turn memory off. Opening this dialog stops microphone capture and continuous mode. Memory defaults to enabled, but saves happen only through explicit commands or the Save button. There is no automatic summarization or passive extraction from conversations.
+
+Supported voice commands include:
+
+- “Remember that I prefer short answers.”
+- “Remember preference: Use British spelling.”
+- “Remember project: Build my trading journal.”
+- “Remember summary: We finished the journal layout; next is testing.” (your explicitly approved summary)
+- “What do you remember about trading?”
+- “What were we working on last time?” (only explicitly stored project/summary entries)
+- “Forget that [exact stored text].” (requires the HUD confirmation)
+- “Disable memory.” (re-enable using the dialog)
+
+SQLite lives outside the checkout at `app.getPath('userData')/memory.sqlite`, normally `~/Library/Application Support/jarvis-hud/memory.sqlite`. The file is mode 600. It is local plaintext, not an encrypted vault: use FileVault and your macOS account protections. Known credential-like content is refused and no memory content is logged. Detection is conservative and cannot identify every possible secret; do not submit credentials as notes. Exports contain private note text: select a new file outside the repository in the native Save dialog. Existing files are never overwritten. Database files and the default export filename pattern are Git-ignored.
+
+Up to 1,000 notes of 2,000 characters each are supported. Parameterized lexical retrieval ranks relevant notes and injects at most four notes / 4,500 characters into a prompt, labelled as untrusted data. This is not semantic/vector search. Recent chat is separate and remains bounded to ten exchanges. Memory mutations clear the recent model context to prevent stale recalled facts surviving an edit, deletion or disable. Disabling prevents both durable writes and retrieval, survives restarts, and leaves notes available only for explicit inspection/export/deletion. Deletions use SQLite secure-delete; OS backups, SSD snapshots and already exported files are outside the application's control.
+
+### Safe explicit commands
+
+Only the deterministic main-process dispatcher executes commands. Model output, stored notes and file contents cannot invoke tools. Every IPC endpoint checks the authorized HUD window and main frame; context isolation and the sandbox remain enabled with renderer Node integration disabled. Only fixed executable paths and individual validated arguments are used, without a shell or user-provided AppleScript.
+
+| Command | Behavior and permission |
+| --- | --- |
+| “Open Safari / Terminal / Finder / Calendar / Activity Monitor” | HUD confirmation; approved bundle IDs only; Terminal opens without executing commands. Running state is checked before reporting success. |
+| “Open https://example.com/path” | HUD confirmation; validated public HTTPS URL, no credentials or custom port. Reports handoff to default browser, not successful page loading. |
+| “Open my trading charts” | Proposes `https://www.tradingview.com/chart/`; confirm before browser handoff. |
+| “Play music” / “Pause music” | Apple Music must already be running. HUD confirmation; macOS may request **Automation** permission. Playback state is checked. Other players are currently unsupported. |
+| “Create a task to [title]” / “List my tasks” / “Complete task [exact title]” | Uses the same dated, atomic task store as the HUD. Ambiguous titles are refused. Concurrent stale HUD edits are rejected and reloaded, preserving voice-created tasks. |
+| “What is the date and time?” | Reads the local system clock directly. |
+| “Run shortcut [exact name]” | Allowlist its exact name in the dialog first, after reviewing it in Apple's Shortcuts app. Approval lasts this session only. Every run requires confirmation and warns about external/destructive effects. Exit status is checked; individual workflow effects are not independently verified. |
+| “List files in folder [name or ID]” / “Read file [relative.txt] in folder [name or ID]” | Choose a folder via the native picker first. Grants are read-only, revocable and session-only. Duplicate folder names require the shown ID. |
+
+No folders or shortcuts are preapproved. Whole-home/system/hidden folders are excluded by the picker. File access rejects traversal, hidden/credential filenames, symbolic links and oversized files; reads are restricted to UTF-8 `.txt`, `.md`, `.csv` up to 16 KB, displaying at most 4,000 characters. File content is not saved as memory automatically. macOS may separately request Documents/Desktop access; grant only the folders you intend to use. Do not approve folders being modified by untrusted programs concurrently.
+
+Confirmations expire after 60 seconds, are single-use, and are invalidated by a new voice turn, mute/interruption, or opening settings. Confirmed-action results appear in the transcript/HUD as text. Failed or denied operations never produce a fabricated success. Cancellation can stop a running helper but cannot undo effects already performed by an application or shortcut. Arbitrary shell execution, messages, purchases, system-setting changes, file writes/deletion and unrestricted autonomous control are unsupported. Use the documented phrases; commands are intentionally not inferred from arbitrary conversation.
+
+### Opt-in continuous conversation
+
+Push-to-talk remains the default on every launch. Explicitly check **Continuous conversation** in the microphone strip, then click the microphone to begin. This permits successive temporary captures until you mute, interrupt, turn the mode off, hide the app, encounter an error or reach the inactivity timeout. It never persists consent across launches. Raw audio exists only during an utterance and private temporary speech processing; speech helpers remove their temporary files. No audio archive is created.
+
+The dialog exposes silence duration (0.5–5 seconds, default 1.2) and idle timeout (15–300 seconds, default 30). An energy-based detector submits only after speech followed by silence; it is not a wake-word or speech-meaning detector and background noise can affect it. Captures remain capped at 45 seconds / 8 MB. Microphone tracks are stopped during transcription, generation and playback; after a reply, a 400 ms gap precedes the next capture. Pending action confirmations pause automatic resumption. Click **Interrupt** to stop playback immediately, abort an in-flight request and discard stale replies. It also disables continuous mode. Wake-word listening is unavailable and stays disabled; no additional listener/model is installed.
+
+HUD labels are **IDLE, LISTENING, THINKING, SPEAKING, INTERRUPTED, ERROR, MUTED**. THINKING represents the existing internal PROCESSING state. Errors stop continuous mode and leave the text response visible if TTS failed; click the mic to recover. The British voice, local model, existing animations, RAM correction and all original panels remain unchanged. A single-instance lock prevents duplicate JARVIS windows from launching concurrent backends. No persistent second Ollama/Whisper/Kokoro service is launched: the existing serialized local speech helpers and Ollama service are reused.
+
+### Validation scope
+
+Unit/integration tests cover SQLite restart persistence/CRUD/disable, bounded relevant retrieval, credential refusal, explicit intent routing, expiring single-use confirmations, action validation, symlink/traversal restrictions, IPC sender/frame authorization, silence policy, state recovery and cancellation. Browser tests exercise simulated real microphone audio, silence-triggered sending, continuous resumption, stopped input during playback, immediate playback interruption and stale-reply handling. Electron tests exercise actual SQLite and preload IPC, memory management/export, task commands and denial of an unrelated window. Native macOS app/media/Shortcuts adapters are tested with a fake OS transport; actual macOS Automation/folder permissions, physical microphone/speaker behavior and installed local model performance still need verification on your Mac. No live Mac-control success is claimed by these Linux checks.

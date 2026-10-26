@@ -8,7 +8,7 @@ const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(),'jarvis-audio-'));
 const fixturePath = path.join(fixtureDir,'tone.wav');
 const rate=48000, count=rate*4, wav=Buffer.alloc(44+count*2);
 wav.write('RIFF',0); wav.writeUInt32LE(wav.length-8,4); wav.write('WAVEfmt ',8); wav.writeUInt32LE(16,16); wav.writeUInt16LE(1,20); wav.writeUInt16LE(1,22); wav.writeUInt32LE(rate,24); wav.writeUInt32LE(rate*2,28); wav.writeUInt16LE(2,32); wav.writeUInt16LE(16,34); wav.write('data',36); wav.writeUInt32LE(count*2,40);
-for(let i=0;i<count;i++) wav.writeInt16LE(Math.round(Math.sin(i*2*Math.PI*440/rate)*24000),44+i*2);
+for(let i=0;i<count;i++) wav.writeInt16LE(Math.round((i<rate*2?Math.sin(i*2*Math.PI*440/rate)*24000:0)),44+i*2);
 fs.writeFileSync(fixturePath,wav);
 (async () => {
  const browser = await chromium.launch({ executablePath:process.env.CHROMIUM_PATH || '/usr/bin/chromium', headless:true, args:['--no-sandbox','--use-fake-ui-for-media-stream','--use-fake-device-for-media-stream',`--use-file-for-fake-audio-capture=${fixturePath}`] });
@@ -20,7 +20,7 @@ fs.writeFileSync(fixturePath,wav);
  await context.addInitScript(({voice})=>{
   const original=navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);window.testStreams=[];
   navigator.mediaDevices.getUserMedia=async opts=>{const stream=await original(opts);window.testStreams.push(stream);return stream;};
-  window.jarvis={assistantStatus:async()=>({configured:true}),assistantCancel:async()=>{},assistantTurn:async()=>{await new Promise(r=>setTimeout(r,350));return {ok:true,user:'Hello Jarvis',text:'Hello Seb.',audio:voice};},
+  window.jarvis={assistantStatus:async()=>({configured:true}),assistantCancel:async()=>{},assistantTurn:async()=>{window.voiceTurns=(window.voiceTurns||0)+1;await new Promise(r=>setTimeout(r,350));return {ok:true,user:'Hello Jarvis',text:'Hello Seb.',audio:voice};},
    metrics:async()=>({platform:'darwin',hostname:'Test Mac',cpu:37,memoryUsed:8*1024**3,memoryTotal:16*1024**3,storageUsed:250*1024**3,storageTotal:500*1024**3,uptime:7380,battery:68,charging:false}),loadTasks:async()=>JSON.parse(localStorage.getItem('jarvis-tasks')||'[]'),saveTasks:async tasks=>localStorage.setItem('jarvis-tasks',JSON.stringify(tasks)),fullscreen:async()=>{}};
  },{voice:wav.toString('base64')});
  await page.reload();await page.locator('#task-status').filter({hasText:'Saved on this device'}).waitFor();
@@ -35,18 +35,58 @@ fs.writeFileSync(fixturePath,wav);
  await page.screenshot({path:'/workspace/jarvis-hud.png',fullPage:true});
  await page.locator('#microphone').click(); assert.equal(await page.locator('#mic-status').innerText(),'MUTED');
  await page.locator('#microphone').click();await page.locator('#mic-status').filter({hasText:'LISTENING'}).waitFor();await page.waitForTimeout(600);
- await page.locator('#send-voice').click();await page.locator('#core-status').filter({hasText:'PROCESSING'}).waitFor();
+ await page.locator('#send-voice').click();await page.locator('#core-status').filter({hasText:'THINKING'}).waitFor();
  assert(await page.evaluate(()=>window.testStreams.every(s=>s.getTracks().every(t=>t.readyState==='ended'))),'No capture may continue while processing');
  await page.locator('#core-status').filter({hasText:'SPEAKING'}).waitFor();assert(await page.locator('#send-voice').isDisabled());
  assert.match(await page.locator('#conversation').innerText(),/USER: Hello Jarvis/);assert.match(await page.locator('#conversation').innerText(),/JARVIS: Hello Seb/);
  assert(await page.evaluate(()=>window.testStreams.every(s=>s.getTracks().every(t=>t.readyState==='ended'))),'Playback must never capture its own output');
  await page.locator('#core-status').filter({hasText:'IDLE'}).waitFor();
+ // Continuous conversation requires explicit opt-in, auto-sends after real silence,
+ // keeps input stopped through playback, then reopens exactly once.
+ assert.equal(await page.locator('#continuous-voice').isChecked(),false);
+ const beforeTurns=await page.evaluate(()=>window.voiceTurns);
+ await page.locator('#continuous-voice').check();await page.locator('#microphone').click();
+ await page.locator('#core-status').filter({hasText:'LISTENING'}).waitFor();
+ await page.locator('#core-status').filter({hasText:'THINKING'}).waitFor({timeout:10000});
+ await page.locator('#core-status').filter({hasText:'SPEAKING'}).waitFor();
+ assert(await page.evaluate(()=>window.testStreams.every(s=>s.getTracks().every(t=>t.readyState==='ended'))));
+ await page.locator('#core-status').filter({hasText:'LISTENING'}).waitFor({timeout:10000});
+ assert.equal(await page.evaluate(()=>window.voiceTurns),beforeTurns+1);
+ await page.locator('#interrupt-voice').click();assert.equal(await page.locator('#core-status').innerText(),'INTERRUPTED');
+ assert.equal(await page.locator('#continuous-voice').isChecked(),false);
+ assert(await page.evaluate(()=>window.testStreams.every(s=>s.getTracks().every(t=>t.readyState==='ended'))));
+ // Interrupt audible playback immediately and ignore the old onended callback.
+ await page.locator('#microphone').click();await page.waitForTimeout(500);await page.locator('#send-voice').click();
+ await page.locator('#core-status').filter({hasText:'SPEAKING'}).waitFor();await page.locator('#interrupt-voice').click();
+ assert.equal(await page.locator('#core-status').innerText(),'INTERRUPTED');await page.waitForTimeout(500);assert.equal(await page.locator('#core-status').innerText(),'INTERRUPTED');
  await page.locator('#microphone').click();await page.locator('#mic-status').filter({hasText:'LISTENING'}).waitFor();await page.waitForTimeout(350);
- await page.locator('#send-voice').click();await page.locator('#core-status').filter({hasText:'PROCESSING'}).waitFor();await page.locator('#microphone').click();
+ await page.locator('#send-voice').click();await page.locator('#core-status').filter({hasText:'THINKING'}).waitFor();await page.locator('#microphone').click();
  await page.waitForTimeout(600);assert.equal(await page.locator('#core-status').innerText(),'MUTED','Late reply must not override cancellation');
+ // A proposed action remains blocked until an explicit click; its verified result
+ // must be visible in the HUD even when the management dialog is closed.
+ await page.evaluate(()=>{
+  window.originalTurn=window.jarvis.assistantTurn;
+  window.jarvis.assistantTurn=async()=>({...await window.originalTurn(),user:'Open Safari',text:'Confirmation required.',proposal:{id:'test-proposal',description:'Open Safari (test adapter only).'}});
+  window.jarvis.control=async request=>{window.confirmRequest=request;return {ok:true,text:'Safari launch verified by test adapter.'};};
+ });
+ await page.locator('#continuous-voice').check();await page.locator('#microphone').click();await page.waitForTimeout(500);await page.locator('#send-voice').click();
+ await page.locator('#core-status').filter({hasText:'SPEAKING'}).waitFor();await page.locator('#action-proposal').waitFor();
+ assert.equal(await page.evaluate(()=>window.confirmRequest),undefined);
+ await page.locator('#confirm-action').click();await page.locator('#assistant-message').filter({hasText:'Safari launch verified by test adapter.'}).waitFor();
+ assert.equal(await page.locator('#core-status').innerText(),'IDLE');assert.equal(await page.locator('#continuous-voice').isChecked(),false);
+ assert.match(await page.locator('#conversation').innerText(),/Safari launch verified by test adapter/);
+ assert.equal(await page.evaluate(()=>window.confirmRequest.id),'test-proposal');
+ await page.evaluate(()=>{window.jarvis.control=async()=>({ok:false,text:'Test action could not be verified. No success reported.'});});
+ await page.locator('#microphone').click();await page.waitForTimeout(500);await page.locator('#send-voice').click();
+ await page.locator('#action-proposal').waitFor();await page.locator('#confirm-action').click();
+ await page.locator('#assistant-message').filter({hasText:'Test action could not be verified'}).waitFor();assert.equal(await page.locator('#core-status').innerText(),'ERROR');
+ await page.evaluate(()=>{window.jarvis.control=async()=>{await new Promise(r=>setTimeout(r,600));return {ok:true,text:'STALE CONTROL RESULT'};};});
+ await page.locator('#microphone').click();await page.waitForTimeout(500);await page.locator('#send-voice').click();
+ await page.locator('#action-proposal').waitFor();await page.locator('#confirm-action').click();await page.locator('#interrupt-voice').click();
+ await page.waitForTimeout(900);assert.equal(await page.locator('#core-status').innerText(),'INTERRUPTED');assert(!((await page.locator('#conversation').innerText()).includes('STALE CONTROL RESULT')));
  await page.evaluate(()=>{window.jarvis.assistantTurn=async()=>({ok:false,message:'Connection or API unavailable. Please try again.'});});
  await page.locator('#microphone').click();await page.locator('#mic-status').filter({hasText:'LISTENING'}).waitFor();await page.waitForTimeout(350);await page.locator('#send-voice').click();
- await page.locator('#assistant-message').filter({hasText:'Connection or API unavailable'}).waitFor();assert.equal(await page.locator('#core-status').innerText(),'IDLE');
+ await page.locator('#assistant-message').filter({hasText:'Connection or API unavailable'}).waitFor();assert.equal(await page.locator('#core-status').innerText(),'ERROR');
  await page.getByLabel('Delete Run system diagnostics').click(); await page.reload(); await page.locator('.empty').waitFor();
  await page.setViewportSize({width:390,height:844}); assert(await page.evaluate(()=>document.documentElement.scrollWidth <= innerWidth));
  const host = await context.newPage();
@@ -67,7 +107,7 @@ fs.writeFileSync(fixturePath,wav);
  await denied.addInitScript(()=>{ navigator.mediaDevices.getUserMedia=async()=>{throw new DOMException('Denied','NotAllowedError');}; });
  await denied.goto('http://localhost:4173'); await denied.locator('#microphone').click();
  await denied.locator('#assistant-message').filter({hasText:'MICROPHONE PERMISSION REQUIRED'}).waitFor();
- assert.equal(await denied.locator('#core-status').innerText(),'IDLE');
- assert.deepEqual(errors,[]); console.log('PASS: task add/complete/reload/delete, clock tick, simulated microphone enable/disable, responsive MacBook/mobile layouts, telemetry rendering, missing-key startup, full mocked voice turn, echo prevention, permission failure, reduced motion, no renderer errors');
+ assert.equal(await denied.locator('#core-status').innerText(),'ERROR');
+ assert.deepEqual(errors,[]); console.log('PASS: task add/complete/reload/delete, clock tick, simulated microphone enable/disable, responsive MacBook/mobile layouts, telemetry rendering, missing-key startup, full mocked voice turn, continuous silence/send/resume, immediate playback interruption, echo prevention, permission failure, reduced motion, no renderer errors');
  } finally { await browser.close(); fs.rmSync(fixtureDir,{recursive:true,force:true}); }
 })().catch(error=>{console.error(error);process.exitCode=1;});

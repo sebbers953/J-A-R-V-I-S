@@ -1,3 +1,4 @@
+import { SilenceDetector, conversationCanResume } from '../conversation';
 import { encodeWav } from '../audio-wav';
 import type { AssistantState, JarvisAPI } from '../shared';
 import { nextState, type VoiceEvent } from '../assistant-state';
@@ -8,6 +9,26 @@ export function initVoice(api: JarvisAPI | undefined) {
   const canvas = el('waveform') as HTMLCanvasElement;
   const ctx = canvas.getContext('2d')!;
   let state: AssistantState = 'IDLE';
+  const continuous = el('continuous-voice') as HTMLInputElement;
+  let deadline=0; let proposalPending=false;let controlsBusy=false;
+  let detector:SilenceDetector|null=null;
+  let noSpeechTimer:ReturnType<typeof setTimeout>|undefined;
+  let resumeTimer:ReturnType<typeof setTimeout>|undefined;
+  const timeoutMs=()=>Math.max(15,Math.min(300,Number((el('conversation-seconds') as HTMLInputElement).value)||30))*1000;
+  continuous.onchange=()=>{
+    if(continuous.checked) {deadline=Date.now()+timeoutMs();message('Continuous mode enabled for this launch. Microphone resumes after replies; click mic to begin.');}
+    else {mute();message('Continuous mode off. Push-to-talk is active.');}
+  };
+  window.addEventListener('jarvis-control-busy',e=>{controlsBusy=!!(e as CustomEvent<boolean>).detail;});
+  window.addEventListener('jarvis-control-result',e=>{stopContinuous();generation++;requesting=false;cleanup();const result=(e as CustomEvent<{text:string;ok:boolean}>).detail;state=result.ok?'IDLE':'ERROR';transition();transcript('',result.text);message(result.text);});
+  window.addEventListener('jarvis-proposal',e=>{proposalPending=!!(e as CustomEvent<boolean>).detail;});
+  function stopContinuous(){continuous.checked=false;clearTimeout(resumeTimer);}
+  function ready() {
+    if(conversationCanResume(continuous.checked,proposalPending,deadline,Date.now())) resumeTimer=setTimeout(()=>{if(conversationCanResume(continuous.checked,proposalPending,deadline,Date.now()))void start();},400);
+    else if(continuous.checked&&!proposalPending){stopContinuous();message('Conversation timed out. Click the microphone to start again.');}
+  }
+  function fail(text:string){stopContinuous();cleanup();transition('error');message(text);}
+
   let stream: MediaStream | null = null;
   let audio: AudioContext | null = null;
   let analyser: AnalyserNode | null = null;
@@ -20,14 +41,15 @@ export function initVoice(api: JarvisAPI | undefined) {
   function message(text: string) { el('assistant-message').textContent = text; }
   function transition(event?: VoiceEvent) {
     if (event) state = nextState(state,event);
-    for (const id of ['mic-status','voice-state','core-status']) el(id).textContent = state;
+    for (const id of ['mic-status','voice-state','core-status']) el(id).textContent = state==='PROCESSING'?'THINKING':state;
     document.body.dataset.voice = state.toLowerCase();
     send.disabled = state !== 'LISTENING';
+    continuous.disabled = ['LISTENING','PROCESSING','SPEAKING'].includes(state)&&!continuous.checked;
     mic.setAttribute('aria-pressed',String(state === 'LISTENING'));
     mic.setAttribute('aria-label',state === 'LISTENING' ? 'Mute microphone' : state === 'PROCESSING' || state === 'SPEAKING' ? 'Cancel and mute assistant' : 'Unmute microphone');
   }
   function releaseInput() {
-    clearTimeout(timer);
+    clearTimeout(timer);clearTimeout(noSpeechTimer);detector=null;chunks=[];
     if (recorder) { recorder.ondataavailable = null; recorder.onstop = null; recorder.onerror = null; if (recorder.state !== 'inactive') recorder.stop(); }
     recorder = null;
     stream?.getTracks().forEach(track => { track.onended = null; track.stop(); }); stream = null;
@@ -39,7 +61,7 @@ export function initVoice(api: JarvisAPI | undefined) {
     void audio?.close(); audio = null;
     document.body.style.setProperty('--audio-level','0');
   }
-  function mute() { generation++; requesting = false; cleanup(); void api?.assistantCancel().catch(()=>{}); transition('mute'); message('Muted. Click the microphone to start a new utterance.'); }
+  function mute() { window.dispatchEvent(new Event('jarvis-cancel-controls'));stopContinuous();window.dispatchEvent(new CustomEvent('jarvis-result',{detail:undefined}));generation++; requesting = false; cleanup(); void api?.assistantCancel().catch(()=>{}); transition('mute'); message('Muted. Click the microphone to start a new utterance.'); }
   function transcript(user: string, text: string) {
     exchanges.push({user,text}); if (exchanges.length>3) exchanges.shift();
     el('conversation').replaceChildren();
@@ -59,10 +81,13 @@ export function initVoice(api: JarvisAPI | undefined) {
       if (token!==generation) return;
       if (!result.ok) {
         if (result.user) transcript(result.user,'');
-        cleanup(); transition('error'); message(result.message); return;
+        fail(result.message); return;
       }
       transcript(result.user,result.text);
-      if (!result.audio) { cleanup(); transition('finish'); message(result.warning || 'Voice playback unavailable.'); return; }
+      deadline=Date.now()+timeoutMs();
+      window.dispatchEvent(new CustomEvent('jarvis-result',{detail:result.proposal}));
+      window.dispatchEvent(new Event('jarvis-tasks-refresh'));
+      if (!result.audio) { stopContinuous();cleanup(); state='ERROR';transition(); message(result.warning || 'Voice playback unavailable.'); return; }
       message('AI-generated voice · microphone is off during playback.');
       const binary=atob(result.audio); const bytesOut=Uint8Array.from(binary,c=>c.charCodeAt(0));
       const buffer=await audio!.decodeAudioData(bytesOut.buffer);
@@ -71,11 +96,11 @@ export function initVoice(api: JarvisAPI | undefined) {
       if (token!==generation) return;
       analyser=audio!.createAnalyser(); analyser.fftSize=1024;
       playback=audio!.createBufferSource(); playback.buffer=buffer; playback.connect(analyser); analyser.connect(audio!.destination);
-      playback.onended=()=>{ if(token===generation) { cleanup(); transition('finish'); message('Ready. Click the microphone for your next question.'); } };
+      playback.onended=()=>{ if(token===generation) { cleanup(); transition('finish'); message('Ready. Click the microphone for your next question.');ready(); } };
       transition('reply'); playback.start();
     } catch {
       if (token!==generation) return;
-      cleanup(); transition('error'); message('Audio or connection unavailable. Please try again.');
+      fail('Audio or connection unavailable. Please try again.');
     }
   }
   function submit() {
@@ -93,11 +118,14 @@ export function initVoice(api: JarvisAPI | undefined) {
   let chunks: Blob[]=[];
   async function start() {
     if(requesting) return;
+    if(controlsBusy){message('A local action is running. Use Interrupt to request cancellation.');return;}
     if(state==='LISTENING' || state==='PROCESSING' || state==='SPEAKING') { mute(); return; }
     if(!configured) { message('CONFIGURATION REQUIRED'); return; }
-    requesting=true; const token=++generation; message('Requesting microphone…');
+    window.dispatchEvent(new CustomEvent('jarvis-result',{detail:undefined}));void api?.assistantCancel().catch(()=>{});
+    clearTimeout(resumeTimer);requesting=true; const token=++generation; message('Requesting microphone…');
     try {
       audio=new AudioContext(); await audio.resume();
+      if(token!==generation)return;
       const captured=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true},video:false});
       if(token!==generation) { captured.getTracks().forEach(t=>t.stop()); return; }
       stream=captured;
@@ -106,17 +134,33 @@ export function initVoice(api: JarvisAPI | undefined) {
       analyser=audio!.createAnalyser(); analyser.fftSize=1024; audio!.createMediaStreamSource(stream).connect(analyser);
       chunks=[]; recorder=new MediaRecorder(stream,{mimeType:mime});
       recorder.ondataavailable=e=>{if(e.data.size) chunks.push(e.data);};
-      recorder.onerror=()=>{ if(token===generation) {cleanup(); transition('error'); message('Microphone recording failed. Please try again.');} };
+      recorder.onerror=()=>{ if(token===generation) {fail('Microphone recording failed. Please try again.');} };
       stream.getAudioTracks()[0].onended=()=>{if(token===generation) mute();};
       recorder.start(250); transition('start'); message('Speak, then click Send. Click the microphone to mute and discard.');
       timer=setTimeout(submit,45_000);
+      if(continuous.checked) {
+        detector=new SilenceDetector(Math.max(500,Math.min(5000,Number((el('silence-seconds') as HTMLInputElement).value)*1000||1200)));
+        deadline=Date.now()+timeoutMs();
+        const checkIdle=()=>{
+          if(token!==generation||state!=='LISTENING')return;
+          const remaining=deadline-Date.now();
+          if(remaining>0)noSpeechTimer=setTimeout(checkIdle,remaining);
+          else {mute();message('Conversation idle timeout. Microphone stopped.');}
+        };
+        noSpeechTimer=setTimeout(checkIdle,timeoutMs());
+      }
     } catch(error) {
       if(token!==generation) return;
-      cleanup(); transition('error');
+      stopContinuous();cleanup(); transition('error');
       message(error instanceof DOMException && ['NotAllowedError','PermissionDeniedError'].includes(error.name) ? 'MICROPHONE PERMISSION REQUIRED' : 'Microphone unavailable. Check your input device.');
     } finally { if(token===generation) requesting=false; }
   }
-  mic.onclick=()=>void start(); send.onclick=submit;
+  function interrupt() {
+    window.dispatchEvent(new Event('jarvis-cancel-controls'));stopContinuous();generation++;requesting=false;cleanup();void api?.assistantCancel().catch(()=>{});
+    window.dispatchEvent(new CustomEvent('jarvis-result',{detail:undefined}));transition('interrupt');message('Interrupted. Microphone is off. Click it to start a new turn.');
+  }
+  mic.onclick=()=>void start(); send.onclick=submit;el('interrupt-voice').onclick=interrupt;
+  document.addEventListener('visibilitychange',()=>{if(document.hidden&&(continuous.checked||state==='LISTENING'))mute();});
   transition();
   void (async()=>{
     try { configured=!!api && (await api.assistantStatus()).configured; }
@@ -132,7 +176,9 @@ export function initVoice(api: JarvisAPI | undefined) {
     let energy=0;
     if(analyser) {analyser.getByteTimeDomainData(samples);samples.forEach((v,i)=>{const x=i/(samples.length-1)*width,y=height/2+(v-128)/128*height*.48; energy+=(v-128)**2; if(i)ctx.lineTo(x,y);else ctx.moveTo(x,y);});}
     else {ctx.moveTo(0,height/2);ctx.lineTo(width,height/2);}
+    if(state==='LISTENING'&&detector){const rms=Math.sqrt(energy/samples.length)/128;if(rms>=detector.threshold)deadline=Date.now()+timeoutMs();if(detector.sample(rms,time))submit();}
     ctx.stroke(); document.body.style.setProperty('--audio-level',String(Math.min(1,Math.sqrt(energy/samples.length)/45)));
   }
   draw();window.addEventListener('beforeunload',()=>{generation++;cleanup();void api?.assistantCancel().catch(()=>{});});
+  return {pause:()=>{mute();message('Microphone off while managing local settings.');}};
 }

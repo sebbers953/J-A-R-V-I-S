@@ -1,4 +1,4 @@
-export type Stage = 'transcription' | 'response' | 'tts';
+export type Stage = 'transcription' | 'response' | 'tts' | 'local';
 export type FailureKind = 'ollama_unavailable' | 'cloud_model_blocked' | 'insufficient_memory' | 'model_unavailable' | 'local_setup_required' | 'local_runtime_failed' | 'authentication' | 'payment_required' | 'permission' | 'not_found' | 'invalid_request' | 'rate_limit' | 'server' | 'timeout' | 'network' | 'invalid_response' | 'response_too_large' | 'cancelled' | 'unknown';
 const kinds: FailureKind[] = ['ollama_unavailable','cloud_model_blocked','insufficient_memory','model_unavailable','local_setup_required','local_runtime_failed','authentication','payment_required','permission','not_found','invalid_request','rate_limit','server','timeout','network','invalid_response','response_too_large','cancelled','unknown'];
 export function failureInfo(error: unknown): { kind: FailureKind; status?: number } {
@@ -18,7 +18,7 @@ export function failureInfo(error: unknown): { kind: FailureKind; status?: numbe
   return {kind:'unknown',status};
 }
 export function stageLabel(stage: Stage): string {
-  return stage === 'transcription' ? 'Local speech-to-text' : stage === 'response' ? 'Local Ollama response' : 'Local text-to-speech';
+  return stage === 'local' ? 'Local memory/control' : stage === 'transcription' ? 'Local speech-to-text' : stage === 'response' ? 'Local Ollama response' : 'Local text-to-speech';
 }
 export function failureMessage(stage: Stage, error: unknown): string {
 
@@ -44,5 +44,5 @@ export function failureMessage(stage: Stage, error: unknown): string {
 // Never pass an Error, provider body, URL query, header, transcript, audio, or env value here.
 export function logStage(turn: number, stage: Stage, event: 'start' | 'success' | 'failed' | 'cancelled', elapsedMs = 0, error?: unknown) {
   const info=event==='cancelled' ? {kind:'cancelled' as FailureKind} : error === undefined ? undefined : failureInfo(error);
-  console.info(`[JARVIS] turn=${turn} stage=${stage} provider=${stage==='response'?'Ollama':stage==='transcription'?'whisper.cpp':'Kokoro'} event=${event} elapsed_ms=${Math.max(0,Math.round(elapsedMs))}${info ? ` category=${info.kind}${info.status ? ` http_status=${info.status}` : ''}` : ''}`);
+  console.info(`[JARVIS] turn=${turn} stage=${stage} provider=${stage==='local'?'LocalControls':stage==='response'?'Ollama':stage==='transcription'?'whisper.cpp':'Kokoro'} event=${event} elapsed_ms=${Math.max(0,Math.round(elapsedMs))}${info ? ` category=${info.kind}${info.status ? ` http_status=${info.status}` : ''}` : ''}`);
 }

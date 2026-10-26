@@ -9,3 +9,9 @@ export function validateTasks(value: unknown): Task[] {
     ids.add(t.id); return { id: t.id, text: t.text.trim(), done: t.done, date: t.date };
   });
 }
+// Optimistic comparison prevents a stale HUD snapshot from overwriting a voice task.
+export function applyTaskSnapshot(current: Task[], next: unknown, expected: unknown): Task[] {
+  const clean=validateTasks(next), base=validateTasks(expected);
+  if(JSON.stringify(validateTasks(current))!==JSON.stringify(base))throw new Error('Tasks changed. Reload and retry.');
+  return clean;
+}
