@@ -1,3 +1,4 @@
+import { encodeWav } from '../audio-wav';
 import type { AssistantState, JarvisAPI } from '../shared';
 import { nextState, type VoiceEvent } from '../assistant-state';
 export function initVoice(api: JarvisAPI | undefined) {
@@ -49,11 +50,12 @@ export function initVoice(api: JarvisAPI | undefined) {
     }
     el('conversation').scrollTop=el('conversation').scrollHeight;
   }
-  async function processCapture(blob: Blob, mime: string, token: number) {
+  async function processCapture(blob: Blob, token: number) {
     try {
-      const bytes = new Uint8Array(await blob.arrayBuffer());
+      const decoded = await audio!.decodeAudioData(await blob.arrayBuffer());
+      const bytes = encodeWav(Array.from({length:decoded.numberOfChannels},(_,i)=>decoded.getChannelData(i)),decoded.sampleRate);
       if (token!==generation) return;
-      const result = await api!.assistantTurn(bytes,mime);
+      const result = await api!.assistantTurn(bytes,'audio/wav');
       if (token!==generation) return;
       if (!result.ok) {
         if (result.user) transcript(result.user,'');
@@ -82,7 +84,7 @@ export function initVoice(api: JarvisAPI | undefined) {
     active.onstop=()=>{
       if(token!==generation) return;
       const blob=new Blob(chunks,{type:mime});
-      releaseInput(); transition('submit'); message('Transcribing and thinking…'); void processCapture(blob,mime,token);
+      releaseInput(); transition('submit'); message('Transcribing and thinking…'); void processCapture(blob,token);
     };
     clearTimeout(timer); active.stop();
     // Stop accepting microphone samples immediately, including the final recorder callback.
@@ -119,7 +121,7 @@ export function initVoice(api: JarvisAPI | undefined) {
   void (async()=>{
     try { configured=!!api && (await api.assistantStatus()).configured; }
     catch { configured=false; }
-    message(configured ? 'Click the microphone to speak. Audio is sent to OpenAI only when submitted.' : 'CONFIGURATION REQUIRED');
+    message(configured ? 'Click the microphone to speak. Audio is sent to Fish Audio only when submitted.' : 'CONFIGURATION REQUIRED');
   })();
   let last=0;
   function draw(time=0) {

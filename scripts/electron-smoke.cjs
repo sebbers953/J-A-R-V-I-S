@@ -4,7 +4,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');const os=require('node:os');const path=require('node:path');
 (async()=>{
  const profile=fs.mkdtempSync(path.join(os.tmpdir(),'jarvis-electron-'));
- const env={...process.env,XDG_CONFIG_HOME:profile,XDG_CACHE_HOME:profile};delete env.OPENAI_API_KEY;
+ const env={...process.env,XDG_CONFIG_HOME:profile,XDG_CACHE_HOME:profile};for(const name of ['GROK_API_KEY','FISH_AUDIO_API_KEY','XAI_API_KEY','OPENAI_API_KEY']) delete env[name];
  let app;
  try {
  app=await electron.launch({args:[path.resolve(__dirname,'..'),...(process.platform==='linux'?['--no-sandbox']:[])],env,timeout:20000});
@@ -13,7 +13,7 @@ const fs=require('node:fs');const os=require('node:os');const path=require('node
  await page.reload();
  await page.locator('#assistant-message').filter({hasText:'CONFIGURATION REQUIRED'}).waitFor();
  assert.equal(await page.evaluate(async()=> (await window.jarvis.assistantStatus()).configured),false);
- const denied=await page.evaluate(async()=>window.jarvis.assistantTurn(new Uint8Array(500),'audio/webm'));
+ const denied=await page.evaluate(async()=>window.jarvis.assistantTurn(new Uint8Array(500),'audio/wav'));
  assert.equal(denied.message,'CONFIGURATION REQUIRED');
  const metrics=await page.evaluate(()=>window.jarvis.metrics());assert(metrics.memoryTotal>0);assert(metrics.storageTotal>0);assert(metrics.uptime>0);
  await page.locator('#task-input').fill('Electron startup check');await page.locator('#task-form button').click();await page.getByLabel('Complete Electron startup check').check();

@@ -1,0 +1,62 @@
+import { SpaceXAI } from '@xai-official/sdk';
+import { encode } from '@msgpack/msgpack';
+export interface ProviderKeys { grok?: string; fish?: string }
+export interface Message { role: 'user' | 'assistant'; content: string }
+export interface VoiceProviders {
+  transcribe(audio: Uint8Array, signal: AbortSignal): Promise<string>;
+  respond(history: Message[], personality: string, signal: AbortSignal): Promise<string>;
+  speak(text: string, signal: AbortSignal): Promise<Uint8Array>;
+}
+export class ProviderError extends Error {
+  constructor(public provider: 'Fish Audio' | 'Grok', public status: number) { super('Provider request failed'); }
+}
+export const GROK_MODEL = 'grok-4.7';
+export const FISH_MODEL = 's2.1-pro';
+// These HTTP contracts follow the providers' official SDKs (sources in README).
+export class CloudProviders implements VoiceProviders {
+  private grok: SpaceXAI;
+  constructor(private keys: ProviderKeys, private request: typeof fetch = fetch) {
+    // Never let an inherited debug flag enable SDK request logging.
+    delete process.env.XAI_DEBUG;
+    this.grok = new SpaceXAI({ apiKey: keys.grok!, baseURL: 'https://api.x.ai/v1', timeout: 60_000, maxRetries: 0, fetch: request });
+  }
+  private async fish(path: 'asr' | 'tts', body: BodyInit, signal: AbortSignal, headers: Record<string,string> = {}) {
+    const response = await this.request(`https://api.fish.audio/v1/${path}`, {
+      method: 'POST', headers: { Authorization: `Bearer ${this.keys.fish}`, ...headers }, body,
+      redirect: 'error', signal: AbortSignal.any([signal, AbortSignal.timeout(60_000)]),
+    });
+    if (!response.ok) { await response.body?.cancel(); throw new ProviderError('Fish Audio', response.status); }
+    return response;
+  }
+  async transcribe(audio: Uint8Array, signal: AbortSignal) {
+    const form = new FormData();
+    form.append('audio', new Blob([new Uint8Array(audio)], { type: 'audio/wav' }), 'speech.wav');
+    form.append('ignore_timestamps', 'true');
+    const response = await this.fish('asr', form, signal);
+    const data = JSON.parse(new TextDecoder().decode(await boundedBytes(response, 2_000_000))) as { text?: unknown };
+    if (typeof data.text !== 'string') throw new ProviderError('Fish Audio', 502);
+    return data.text;
+  }
+  async respond(history: Message[], personality: string, signal: AbortSignal) {
+    const response = await this.grok.responses.create({
+      model: GROK_MODEL, input: [{ role: 'system', content: personality }, ...history],
+      max_output_tokens: 2048, reasoning: { effort: 'low' }, store: false, stream: false,
+    }, { signal });
+    return response.toText();
+  }
+  async speak(text: string, signal: AbortSignal) {
+    const body = encode({ text, format: 'wav' });
+    const response = await this.fish('tts', new Uint8Array(body), signal, { 'Content-Type': 'application/msgpack', model: FISH_MODEL });
+    const bytes = await boundedBytes(response, 20_000_000);
+    if (!bytes.length) throw new ProviderError('Fish Audio', 502);
+    return bytes;
+  }
+}
+async function boundedBytes(response: Response, limit: number): Promise<Uint8Array> {
+  if (!response.body) throw new Error('Empty provider response');
+  const reader=response.body.getReader(); const chunks: Uint8Array[]=[];let total=0;
+  try {
+    while (true) { const {value,done}=await reader.read(); if(done) break; total+=value.length; if(total>limit) throw new Error('Provider response too large'); chunks.push(value); }
+    const result=new Uint8Array(total);let offset=0; for(const chunk of chunks) {result.set(chunk,offset);offset+=chunk.length;} return result;
+  } finally { await reader.cancel().catch(()=>{}); reader.releaseLock(); }
+}
