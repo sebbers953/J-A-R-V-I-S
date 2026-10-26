@@ -1,6 +1,6 @@
 export type Stage = 'transcription' | 'response' | 'tts';
-export type FailureKind = 'local_setup_required' | 'local_runtime_failed' | 'authentication' | 'payment_required' | 'permission' | 'not_found' | 'invalid_request' | 'rate_limit' | 'server' | 'timeout' | 'network' | 'invalid_response' | 'response_too_large' | 'cancelled' | 'unknown';
-const kinds: FailureKind[] = ['local_setup_required','local_runtime_failed','authentication','payment_required','permission','not_found','invalid_request','rate_limit','server','timeout','network','invalid_response','response_too_large','cancelled','unknown'];
+export type FailureKind = 'model_unavailable' | 'local_setup_required' | 'local_runtime_failed' | 'authentication' | 'payment_required' | 'permission' | 'not_found' | 'invalid_request' | 'rate_limit' | 'server' | 'timeout' | 'network' | 'invalid_response' | 'response_too_large' | 'cancelled' | 'unknown';
+const kinds: FailureKind[] = ['model_unavailable','local_setup_required','local_runtime_failed','authentication','payment_required','permission','not_found','invalid_request','rate_limit','server','timeout','network','invalid_response','response_too_large','cancelled','unknown'];
 export function failureInfo(error: unknown): { kind: FailureKind; status?: number } {
   const e = error && typeof error === 'object' ? error as {status?: unknown; kind?: unknown; name?: unknown; code?: unknown; cause?: {code?: unknown}} : {};
   const status = typeof e.status === 'number' && Number.isInteger(e.status) && e.status>=100 && e.status<=599 ? e.status : undefined;
@@ -23,6 +23,7 @@ export function stageLabel(stage: Stage): string {
 export function failureMessage(stage: Stage, error: unknown): string {
   const {kind,status}=failureInfo(error);
   const hints: Record<FailureKind,string> = {
+    model_unavailable:'no compatible chat model is listed for this key; check xAI model access or GROK_MODEL',
     local_setup_required:'local speech tools/models are missing or misconfigured; run npm run setup:voice',
     local_runtime_failed:'local speech engine failed; rerun npm run setup:voice and retry',
     authentication:'authentication failed; check the local API key',

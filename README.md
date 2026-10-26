@@ -77,7 +77,7 @@ Click the microphone to begin **LISTENING**, speak, then click **Send utterance*
 
 States: **IDLE → LISTENING → PROCESSING → SPEAKING → IDLE**. PROCESSING covers local transcription and Grok's response. Input tracks stop before processing and stay off throughout playback, preventing self-transcription. Clicking the microphone while processing or speaking cancels the turn and mutes. The existing waveform uses real microphone samples and then real playback samples; the existing core pulses with output audio. No always-on listening or wake phrase is enabled.
 
-The exact Grok response text is displayed and passed to local Kokoro, whose WAV plays through your default Mac output device. Three recent exchanges stay visible; ten exchanges remain in session memory and clear on restart. Grok uses the official `@xai-official/sdk`, `grok-4.7` Responses API, `store: false`, and the existing concise JARVIS personality. No computer-control tools are enabled.
+The exact Grok response text is displayed and passed to local Kokoro, whose WAV plays through your default Mac output device. Three recent exchanges stay visible; ten exchanges remain in session memory and clear on restart. Grok uses the official `@xai-official/sdk`, the xAI Responses API with `grok-4.20-0309-non-reasoning` preferred, `store: false`, and the existing concise JARVIS personality. No computer-control tools are enabled.
 
 Microphone permission failure shows **MICROPHONE PERMISSION REQUIRED**. Allow Electron in System Settings → Privacy & Security → Microphone. Missing Grok credentials show **CONFIGURATION REQUIRED**, without breaking the rest of the HUD. Missing local tools/models show **Local speech-to-text** or **Local text-to-speech** setup errors directing you to `npm run setup:voice`. Grok failures are separately labeled. A TTS failure retains Grok's visible text and conversation context. Safe terminal logs contain stage, engine, timing and normalized error category only.
 
@@ -110,3 +110,12 @@ Renderer checks: run `npm run preview -- --port 4173` in one terminal, then `npm
 - [xAI official TypeScript SDK](https://github.com/xai-org/xai-sdk-ts). Only Grok requires an online API account; no Fish or other speech subscription/API key is used.
 
 A packaged/signable macOS distribution is outside this setup; it needs microphone usage descriptions and appropriate signing/entitlements. This repository runs from the source checkout with `npm start`.
+
+
+## Grok model compatibility
+
+The previous request pinned `grok-4.7` and sent `reasoning.effort=low` unconditionally. The preferred chat model is now `grok-4.20-0309-non-reasoning`, listed in the official SDK model catalog and [xAI cookbook](https://github.com/xai-org/xai-cookbook/tree/main/examples/reviews-to-themes). Requests omit the optional reasoning control entirely. The endpoint remains `https://api.x.ai/v1/responses`; personality, session history, output limit, `store:false`, and local speech are unchanged.
+
+On the first response in a session, the app reads `/v1/models` with the existing key and selects the first listed chat model in this order: `grok-4.20-0309-non-reasoning`, `grok-4.3`, `grok-4.6`, `grok-4.7`. The selection is cached for that session. If none is listed, it reports model access clearly instead of guessing another model. A key whose catalog access is denied (403/404) can still attempt inference with the preferred/configured model; other catalog failures remain visible. No automatic repeated inference or paid fallback calls are made.
+
+Optional `GROK_MODEL` in the local `.env` selects a specific account-listed model without modifying the key or source. It is not required; keep your existing `.env` unchanged to use automatic selection. Model availability in a catalog is not proof of remaining account credits or inference permission: the authenticated response call on your Mac is the final access check. Logs contain only selection status, never credentials or account catalog contents.
