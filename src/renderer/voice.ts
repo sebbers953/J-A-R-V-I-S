@@ -121,7 +121,7 @@ export function initVoice(api: JarvisAPI | undefined) {
   void (async()=>{
     try { configured=!!api && (await api.assistantStatus()).configured; }
     catch { configured=false; }
-    message(configured ? 'Click the microphone to speak. Speech stays on-device; transcript text is sent to Grok.' : 'CONFIGURATION REQUIRED');
+    message(configured ? 'Click the microphone to speak. Speech and responses stay on-device with Ollama.' : 'CONFIGURATION REQUIRED');
   })();
   let last=0;
   function draw(time=0) {

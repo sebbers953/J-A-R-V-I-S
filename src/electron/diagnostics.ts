@@ -1,7 +1,6 @@
-import { GrokHttpError } from './grok-http';
 export type Stage = 'transcription' | 'response' | 'tts';
-export type FailureKind = 'model_unavailable' | 'local_setup_required' | 'local_runtime_failed' | 'authentication' | 'payment_required' | 'permission' | 'not_found' | 'invalid_request' | 'rate_limit' | 'server' | 'timeout' | 'network' | 'invalid_response' | 'response_too_large' | 'cancelled' | 'unknown';
-const kinds: FailureKind[] = ['model_unavailable','local_setup_required','local_runtime_failed','authentication','payment_required','permission','not_found','invalid_request','rate_limit','server','timeout','network','invalid_response','response_too_large','cancelled','unknown'];
+export type FailureKind = 'ollama_unavailable' | 'cloud_model_blocked' | 'insufficient_memory' | 'model_unavailable' | 'local_setup_required' | 'local_runtime_failed' | 'authentication' | 'payment_required' | 'permission' | 'not_found' | 'invalid_request' | 'rate_limit' | 'server' | 'timeout' | 'network' | 'invalid_response' | 'response_too_large' | 'cancelled' | 'unknown';
+const kinds: FailureKind[] = ['ollama_unavailable','cloud_model_blocked','insufficient_memory','model_unavailable','local_setup_required','local_runtime_failed','authentication','payment_required','permission','not_found','invalid_request','rate_limit','server','timeout','network','invalid_response','response_too_large','cancelled','unknown'];
 export function failureInfo(error: unknown): { kind: FailureKind; status?: number } {
   const e = error && typeof error === 'object' ? error as {status?: unknown; kind?: unknown; name?: unknown; code?: unknown; cause?: {code?: unknown}} : {};
   const status = typeof e.status === 'number' && Number.isInteger(e.status) && e.status>=100 && e.status<=599 ? e.status : undefined;
@@ -19,20 +18,23 @@ export function failureInfo(error: unknown): { kind: FailureKind; status?: numbe
   return {kind:'unknown',status};
 }
 export function stageLabel(stage: Stage): string {
-  return stage === 'transcription' ? 'Local speech-to-text' : stage === 'response' ? 'Grok response' : 'Local text-to-speech';
+  return stage === 'transcription' ? 'Local speech-to-text' : stage === 'response' ? 'Local Ollama response' : 'Local text-to-speech';
 }
 export function failureMessage(stage: Stage, error: unknown): string {
-  if(stage==='response' && error instanceof GrokHttpError)return `Grok ${error.operation==='catalog'?'model catalog':'response'} failed (HTTP ${error.status}): ${error.body || '[empty API error body]'}`;
+
   const {kind,status}=failureInfo(error);
   const hints: Record<FailureKind,string> = {
-    model_unavailable:'no compatible chat model is listed for this key; check xAI model access or GROK_MODEL',
+    ollama_unavailable:'Ollama is not reachable; start Ollama locally on port 11434',
+    cloud_model_blocked:'cloud or remote models are blocked; use a downloaded local Ollama model',
+    insufficient_memory:'not enough memory to load the local model; close other apps or choose a smaller OLLAMA_MODEL',
+    model_unavailable:'local model is missing or not a chat model; run ollama pull llama3.1:8b or pull your configured OLLAMA_MODEL',
     local_setup_required:'local speech tools/models are missing or misconfigured; run npm run setup:voice',
     local_runtime_failed:'local speech engine failed; rerun npm run setup:voice and retry',
     authentication:'authentication failed; check the local API key',
-    payment_required:stage==='response'?'API payment required; check xAI API billing':'unexpected payment error in a local speech stage',
+    payment_required:stage==='response'?'API payment required; this local backend does not use API billing':'unexpected payment error in a local speech stage',
     permission:'access denied; check API permissions and credits',
-    not_found:stage==='response'?'model or endpoint unavailable; check Grok model access':stage==='tts'?'local voice/model unavailable; rerun setup:voice':'local transcription tool unavailable',
-    invalid_request:stage==='tts'?'local speech input rejected':stage==='transcription'?'local audio input rejected':'request rejected; check Grok model support',
+    not_found:stage==='response'?'model or endpoint unavailable; check the installed Ollama model':stage==='tts'?'local voice/model unavailable; rerun setup:voice':'local transcription tool unavailable',
+    invalid_request:stage==='tts'?'local speech input rejected':stage==='transcription'?'local audio input rejected':'request rejected; check the Ollama model/options',
     rate_limit:'quota or rate limit reached',server:'provider service unavailable',timeout:'request timed out',network:'network or TLS connection failed',
     invalid_response:'unexpected provider response',response_too_large:'provider response exceeded the size limit',cancelled:'cancelled',unknown:'request failed; see the main-process stage log',
   };
@@ -42,5 +44,5 @@ export function failureMessage(stage: Stage, error: unknown): string {
 // Never pass an Error, provider body, URL query, header, transcript, audio, or env value here.
 export function logStage(turn: number, stage: Stage, event: 'start' | 'success' | 'failed' | 'cancelled', elapsedMs = 0, error?: unknown) {
   const info=event==='cancelled' ? {kind:'cancelled' as FailureKind} : error === undefined ? undefined : failureInfo(error);
-  console.info(`[JARVIS] turn=${turn} stage=${stage} provider=${stage==='response'?'xAI':stage==='transcription'?'whisper.cpp':'Kokoro'} event=${event} elapsed_ms=${Math.max(0,Math.round(elapsedMs))}${info ? ` category=${info.kind}${info.status ? ` http_status=${info.status}` : ''}` : ''}`);
+  console.info(`[JARVIS] turn=${turn} stage=${stage} provider=${stage==='response'?'Ollama':stage==='transcription'?'whisper.cpp':'Kokoro'} event=${event} elapsed_ms=${Math.max(0,Math.round(elapsedMs))}${info ? ` category=${info.kind}${info.status ? ` http_status=${info.status}` : ''}` : ''}`);
 }

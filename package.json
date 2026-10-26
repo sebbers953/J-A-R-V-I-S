@@ -14,7 +14,8 @@
     "test:smoke": "node scripts/smoke.cjs",
     "test:electron": "node scripts/electron-smoke.cjs",
     "setup:voice": "node scripts/setup-local-voice.cjs",
-    "diagnose:grok": "node scripts/diagnose-grok.cjs"
+    "diagnose:ollama": "node scripts/diagnose-ollama.cjs",
+    "start:ollama": "node scripts/start-ollama.cjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.1",
@@ -24,7 +25,6 @@
     "vite": "^7.0.0"
   },
   "dependencies": {
-    "@xai-official/sdk": "^0.2.5",
     "dotenv": "^18.0.9"
   }
 }

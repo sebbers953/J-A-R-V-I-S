@@ -1,5 +1,5 @@
 import { logStage, failureMessage, type Stage } from './diagnostics';
-import { CloudProviders, type ProviderKeys, type VoiceProviders, type Message } from './providers';
+import { OllamaProviders, type ProviderOptions, type VoiceProviders, type Message } from './providers';
 import type { AssistantResult } from '../shared';
 export const PERSONALITY = "You are JARVIS, Seb's personal desktop AI assistant. Speak naturally, intelligently and concisely. You are calm, capable, slightly futuristic, and conversational. Prefer short spoken answers unless the user requests detail. Never claim to have performed computer actions: you have no computer-control tools.";
 export const CONFIGURATION_MESSAGE = 'CONFIGURATION REQUIRED';
@@ -8,9 +8,8 @@ export class Assistant {
   private history: Message[] = [];
   private turnNumber = 0;
   private controller: AbortController | null = null;
-  constructor(keys: ProviderKeys = {}, client?: VoiceProviders) {
-    const usable = (value?: string) => !!value?.trim() && !/^your_.*key_here$/.test(value) && value !== 'your_key_here';
-    this.client = client ?? (usable(keys.grok) ? new CloudProviders(keys) : null);
+  constructor(options: ProviderOptions = {}, client?: VoiceProviders) {
+    this.client = client ?? new OllamaProviders(options);
   }
   configured() { return this.client !== null; }
   cancel() { this.controller?.abort(); }

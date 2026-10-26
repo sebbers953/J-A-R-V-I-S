@@ -11,8 +11,8 @@ import type { Metrics } from '../shared';
 const exec = promisify(execFile);
 // Read credentials only here; never inject them into renderer or preload.
 const assistant = new Assistant(loadAssistantConfig(app.getAppPath()));
-for (const name of ['GROK_API_KEY', 'GROK_MODEL', 'JARVIS_SPEECH_DIR', 'JARVIS_TTS_VOICE', 'FISH_AUDIO_API_KEY', 'FISH_AUDIO_MODEL_ID', 'XAI_API_KEY', 'XAI_DEBUG', 'OPENAI_API_KEY']) delete process.env[name];
-if (!assistant.configured()) console.info('JARVIS: CONFIGURATION REQUIRED. Add GROK_API_KEY to the local .env in the J-A-R-V-I-S project folder, then restart.');
+for (const name of ['OLLAMA_MODEL', 'GROK_API_KEY', 'GROK_MODEL', 'JARVIS_SPEECH_DIR', 'JARVIS_TTS_VOICE', 'FISH_AUDIO_API_KEY', 'FISH_AUDIO_MODEL_ID', 'XAI_API_KEY', 'XAI_DEBUG', 'OPENAI_API_KEY']) delete process.env[name];
+console.info('[JARVIS] backend=Ollama endpoint=loopback speech=local api_keys=not-required');
 let win: BrowserWindow | null = null;
 let previous = cpus();
 let saveQueue: Promise<void> = Promise.resolve();

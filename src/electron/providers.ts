@@ -1,8 +1,6 @@
-import { SpaceXAI } from '@xai-official/sdk';
-import { grokTransport, readGrokBody, GrokHttpError } from './grok-http';
 import { LocalSpeech, type SpeechEngine, type LocalSpeechOptions } from './local-speech';
 import type { FailureKind } from './diagnostics';
-export interface ProviderKeys { grok?: string; model?: string; speech?: LocalSpeechOptions }
+export interface ProviderOptions { model?: string; speech?: LocalSpeechOptions }
 export interface Message { role: 'user' | 'assistant'; content: string }
 export interface VoiceProviders {
   transcribe(audio: Uint8Array, signal: AbortSignal): Promise<string>;
@@ -10,60 +8,63 @@ export interface VoiceProviders {
   speak(text: string, signal: AbortSignal): Promise<Uint8Array>;
 }
 export class ProviderError extends Error {
-  constructor(public provider: 'Grok', public status: number, public kind?: FailureKind) { super('Provider request failed'); }
+  constructor(public status: number | undefined, public kind: FailureKind) { super('Local Ollama operation failed'); }
 }
-export const GROK_MODEL = 'grok-4.20-0309-non-reasoning';
-const CHAT_MODELS=[GROK_MODEL,'grok-4.3','grok-4.6','grok-4.7'];
-export class CloudProviders implements VoiceProviders {
-  private grok: SpaceXAI;private speech: SpeechEngine;
-  private request: typeof fetch;private apiKey: string;
-  private selectedModel?: string;
-  private preferredModel: string;private explicitModel: boolean;
-  constructor(keys: ProviderKeys, request: typeof fetch = fetch, speech?: SpeechEngine) {
-    this.preferredModel=keys.model?.trim() || GROK_MODEL;this.explicitModel=!!keys.model?.trim();
-    delete process.env.XAI_DEBUG;
-    this.apiKey=keys.grok!;this.request=grokTransport(request,[this.apiKey]);
-    this.grok=new SpaceXAI({apiKey:keys.grok!,baseURL:'https://api.x.ai/v1',timeout:60_000,maxRetries:0,fetch:this.request});
-    this.speech=speech || new LocalSpeech(keys.speech!);
+// Selected for the user's confirmed Apple M4 / 24 GB unified memory.
+export const OLLAMA_MODEL = 'llama3.1:8b';
+export const OLLAMA_URL = 'http://127.0.0.1:11434';
+export class OllamaProviders implements VoiceProviders {
+  private speech: SpeechEngine;private model: string;
+  constructor(options: ProviderOptions = {},private request: typeof fetch = fetch,speech?: SpeechEngine) {
+    this.model=options.model?.trim() || OLLAMA_MODEL;
+    this.speech=speech || new LocalSpeech(options.speech!);
   }
-  transcribe(audio: Uint8Array,signal: AbortSignal) {return this.speech.transcribe(audio,signal);}
-  speak(text: string,signal: AbortSignal) {return this.speech.speak(text,signal);}
-  private async model(signal: AbortSignal): Promise<string> {
-    if(this.selectedModel)return this.selectedModel;
-    let ids: Set<string>;
+  transcribe(audio: Uint8Array,signal: AbortSignal){return this.speech.transcribe(audio,signal);}
+  speak(text: string,signal: AbortSignal){return this.speech.speak(text,signal);}
+  private async post(path: '/api/show' | '/api/chat',body: unknown,signal: AbortSignal): Promise<Record<string,unknown>> {
+    if(signal.aborted)throw new ProviderError(undefined,'cancelled');
+    let response: Response;
     try {
-      const catalog=await this.grok.models.list({signal});
-      ids=new Set(catalog.data.map(model=>model.id));
-    } catch(error) {
-      const cause=error && typeof error==='object' && 'cause' in error ? error.cause : undefined;
-      const failure=cause instanceof GrokHttpError?cause:error;
-      const status=failure && typeof failure==='object' && 'status' in failure ? failure.status : undefined;
-      // Some scoped keys permit inference but not catalog reads. Let inference verify access.
-      if(status!==403 && status!==404)throw failure;
-      console.info('[JARVIS] stage=response model_catalog=unavailable selection=configured-default');
-      this.selectedModel=this.preferredModel;
-      return this.selectedModel;
+      response=await this.request(new Request(`${OLLAMA_URL}${path}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.any([signal,AbortSignal.timeout(180_000)]),redirect:'error'}));
+    }catch(error){
+      if(signal.aborted)throw new ProviderError(undefined,'cancelled');
+      if(error instanceof Error && error.name==='TimeoutError')throw new ProviderError(undefined,'timeout');
+      throw new ProviderError(undefined,'ollama_unavailable');
     }
-    const candidates=this.explicitModel?[this.preferredModel]:CHAT_MODELS;
-    const selected=candidates.find(id=>ids.has(id));
-    if(!selected)throw new ProviderError('Grok',400,'model_unavailable');
-    this.selectedModel=selected;
-    console.info('[JARVIS] stage=response model_catalog=checked selection=available-chat-model');
-    return selected;
+    if(!response.body)throw new ProviderError(response.status,'invalid_response');
+    const reader=response.body.getReader();const chunks:Uint8Array[]=[];let length=0;
+    let data: unknown;
+    try {
+      while(true){const {done,value}=await reader.read();if(done)break;length+=value.length;if(length>2_000_000)throw new ProviderError(response.status,'response_too_large');chunks.push(value);}
+      const bytes=new Uint8Array(length);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
+      try{data=JSON.parse(new TextDecoder().decode(bytes));}catch{throw new ProviderError(response.status,'invalid_response');}
+    }finally{await reader.cancel().catch(()=>{});reader.releaseLock();}
+    if(!response.ok){
+      if(response.status===404)throw new ProviderError(404,'model_unavailable');
+      // Interpret a known failure category; never log the raw body or an echoed prompt.
+      const message=data && typeof data==='object' && 'error' in data ? String(data.error) : '';
+      if(/memory|out of memory|cannot allocate/i.test(message))throw new ProviderError(response.status,'insufficient_memory');
+      throw new ProviderError(response.status,response.status>=500?'server':'invalid_request');
+    }
+    if(!data || typeof data!=='object' || Array.isArray(data))throw new ProviderError(response.status,'invalid_response');
+    return data as Record<string,unknown>;
   }
   async respond(history: Message[],personality: string,signal: AbortSignal) {
-    const model=await this.model(signal);
-    // Explicit wire payload: SDK responses.create() injects encrypted-reasoning
-    // includes for store:false. Plain text sessions do not need that extension.
-    const response=await this.request(new Request('https://api.x.ai/v1/responses',{
-      method:'POST',headers:{Authorization:`Bearer ${this.apiKey}`,'Content-Type':'application/json'},
-      body:JSON.stringify({model,input:[{role:'system',content:personality},...history],max_output_tokens:2048,store:false,stream:false}),
-      signal:AbortSignal.any([signal,AbortSignal.timeout(60_000)]),redirect:'error',
-    }));
-    let data: {output?: {type?:string;content?:{type?:string;text?:string}[]}[]};
-    try{data=JSON.parse(await readGrokBody(response));}catch{throw new ProviderError('Grok',response.status,'invalid_response');}
-    if(!data || !Array.isArray(data.output))throw new ProviderError('Grok',response.status,'invalid_response');
-    const text=data.output.filter(item=>item&&item.type==='message').flatMap(item=>Array.isArray(item.content)?item.content:[]).filter(item=>item&&item.type==='output_text'&&typeof item.text==='string').map(item=>item.text).join('').trim();
-    if(!text)throw new ProviderError('Grok',response.status,'invalid_response');return text;
+    // No host URLs or cloud tags; an alias is also checked against /api/show below.
+    if(!/^[a-zA-Z0-9][a-zA-Z0-9_.-]*(?:\/[a-zA-Z0-9][a-zA-Z0-9_.-]*)?(?::[a-zA-Z0-9][a-zA-Z0-9_.-]*)?$/.test(this.model) || /cloud/i.test(this.model) || (this.model.includes('/') && this.model.split('/')[0].includes('.')))throw new ProviderError(undefined,'cloud_model_blocked');
+    // Check every turn so retagging a local alias cannot silently select a cloud model.
+    const info=await this.post('/api/show',{model:this.model},signal);
+    if(info.remote_host || info.remote_model)throw new ProviderError(undefined,'cloud_model_blocked');
+    const details=info.details as {format?:unknown}|undefined;
+    if(!details || details.format!=='gguf' || !info.model_info)throw new ProviderError(undefined,'invalid_response');
+    if(Array.isArray(info.capabilities)&&!info.capabilities.includes('completion'))throw new ProviderError(undefined,'model_unavailable');
+    const data=await this.post('/api/chat',{
+      model:this.model,messages:[{role:'system',content:personality},...history],stream:false,
+      options:{num_ctx:4096,num_predict:512,temperature:0.4},keep_alive:'5m',
+    },signal);
+    if(data.remote_host || data.remote_model)throw new ProviderError(undefined,'cloud_model_blocked');
+    const message=data.message as {role?:unknown;content?:unknown}|undefined;
+    if(data.done!==true || message?.role!=='assistant' || typeof message.content!=='string' || !message.content.trim())throw new ProviderError(undefined,'invalid_response');
+    return message.content.trim();
   }
 }

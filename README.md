@@ -2,84 +2,79 @@
 
 Electron + TypeScript desktop HUD with animated rings, live clock/date, native CPU/RAM/storage/battery/uptime, persistent Daily Tasks, and an explicit-capture voice assistant.
 
-**Voice pipeline: microphone → local whisper.cpp → Grok/xAI → local Kokoro ONNX → speakers.** Fish Audio, paid speech services, and speech API credentials are not used. Grok remains remote and its normal API charges apply. Only transcript text and session conversation context go to xAI; microphone audio and synthesized voice stay on-device.
+**Voice pipeline: microphone → local whisper.cpp → local Ollama (Llama 3.1 8B) → local Kokoro ONNX → speakers.** All inference stays on your Mac after the one-time downloads. No cloud AI API calls, API keys or paid speech services are used.
 
-## macOS installation / upgrade
+## macOS installation / upgrade — Apple M4, 24 GB
 
-Requires macOS with [Homebrew](https://brew.sh) on PATH and Node.js 24 LTS (minimum 22.13). Apple Silicon is recommended. Keep your existing local `.env` and `GROK_API_KEY` unchanged.
+The initial model is **Llama 3.1 8B**, Ollama tag **`llama3.1:8b`**, as requested for your confirmed M4 MacBook with 24 GB unified memory. Its quantized download is roughly 5 GB, with additional RAM needed for runtime/context. This leaves room for the existing Whisper/Kokoro engines and normal macOS use. Ollama automatically uses Apple Silicon acceleration. Context is bounded to 4096 tokens, output to 512 tokens; the model remains warm for five minutes to reduce repeated startup latency. First inference can take longer while the model loads.
 
-From your existing clone:
+Requires Node 24 LTS (minimum 22.13) and a macOS version supported by the current Ollama release (currently macOS Sonoma 14 or later). Homebrew is used below for installation. Keep your existing `.env`, Whisper installation, Kokoro installation and voice settings untouched.
+
+In Terminal 1, from your existing checkout:
 
 ```bash
 git pull --ff-only origin main
 npm ci
-npm run setup:voice
-npm run typecheck
 npm run build
+brew install ollama
+npm run start:ollama
+```
+
+Leave that Terminal running. `start:ollama` runs `ollama serve` bound to `127.0.0.1:11434` with `OLLAMA_NO_CLOUD=1`. It does not forward API keys to the daemon. If another Ollama app/service already owns port 11434, quit that app or stop the service you started, then rerun this command. JARVIS does not kill unrelated services automatically.
+
+In Terminal 2, from the same checkout:
+
+```bash
+ollama pull llama3.1:8b
+npm run typecheck
 npm test
+npm run diagnose:ollama
 npm start
 ```
 
-If Homebrew is not installed, install it using its official instructions at https://brew.sh first, then open a new Terminal. The setup command reports this prerequisite rather than silently installing a package manager. Homebrew may ask you to install Apple Command Line Tools or approve system installation steps.
+`ollama pull` is the one-time public model download; it needs internet and sufficient free disk space. It does not send conversation/audio. `diagnose:ollama` sends a fixed test sentence to the local model and prints a success message only after a completed chat response is actually received. It does not use the microphone or change voice configuration. Once the models are downloaded, the complete voice pipeline works offline. No account, API key, paid inference, cloud fallback, or speech subscription is required.
 
-`npm run setup:voice`:
+On subsequent launches, start Ollama in Terminal 1 if it is not already running (`npm run start:ollama`), then run `npm start` in Terminal 2. Rebuild after source updates. The standard `npm start` workflow remains unchanged.
 
-1. Installs Homebrew `whisper.cpp`, `ffmpeg`, and `python@3.12`.
-2. Creates an isolated Python environment and installs `kokoro-onnx==0.6.1` (ONNX Runtime, not PyTorch).
-3. Downloads the English Whisper `base.en` model, Kokoro v1.0 ONNX weights, and Kokoro voices. The model downloads total roughly 500 MB; allow at least 2 GB of free disk space plus any additional Homebrew dependencies.
-4. Verifies every model against `scripts/local-voice/models.json`: Whisper's published SHA-1 and Kokoro's published GitHub-release SHA-256 digests. TLS/checksum verification stays enabled. Incomplete downloads are removed, verified existing files are reused, and failed verification stops setup.
-5. Synthesizes a fixed test sentence with Kokoro and transcribes it with Whisper, with no API calls. It writes `runtime.json` only after this local round-trip succeeds.
+### Existing Whisper/Kokoro setup
 
-The installer never reads or rewrites `.env`, API keys, or task data. It excludes known API keys from child-process environments. Internet is needed for installation/model downloads; both speech stages work offline afterward. Rerun setup to repair tools or models. On Apple Silicon, whisper.cpp uses its normal Metal acceleration; Kokoro runs on CPU with up to four threads to keep resource use reasonable. Voice models are retained between launches. Runtime model files are not part of Git.
+**Do not reinstall working speech engines.** `npm run setup:voice` remains available only for a new installation or repair. It installs Homebrew `whisper.cpp`, FFmpeg and an isolated Python/Kokoro environment, downloads roughly 500 MB of speech models with published checksum verification, and runs a local synthesis/transcription self-test. It does not install Ollama or edit `.env`/task files.
 
-Default installation directory:
+Existing default speech directory:
 
 ```text
 ~/Library/Application Support/JARVIS/speech/
-  models/ggml-base.en.bin
-  models/kokoro-v1.0.onnx
-  models/voices-v1.0.bin
-  venv/
-  runtime.json
 ```
 
-The first speech turn may take several seconds to load local models. Models are loaded per turn so no separate speech server is required and memory is released afterward. Speech processes time out after three minutes and are terminated when you cancel. This version uses English transcription.
+Whisper remains English `base.en`; Kokoro remains the existing British male preset (`bm_george`, or your existing `JARVIS_TTS_VOICE`). Its 0.92 speaking speed, audio generation/playback path and voice models have not changed. There is no voice cloning or actor impersonation.
 
 ## Local configuration
 
-The only required API setting is your existing `GROK_API_KEY`, in `.env` beside `package.json` (for example `~/J-A-R-V-I-S/.env`). Nothing in setup modifies that file or key. Old `FISH_AUDIO_API_KEY` and `FISH_AUDIO_MODEL_ID` entries are ignored; they are not required and may be left untouched.
+No API key is required. Existing `GROK_API_KEY`, `GROK_MODEL`, Fish or OpenAI entries in your local `.env` are ignored and left untouched. No migration command deletes or rewrites `.env`. The app reads only its Ollama model and existing speech configuration from that file. `.env`, `.env.local` and other environment files remain Git-ignored.
 
-For a new checkout only, copy the placeholder template with `cp -n .env.example .env`, enter your Grok key privately using an editor, and use `chmod 600 .env`. Never put credentials in source, chat, screenshots, or Git. `.env`, `.env.local`, `.env.*`, and other environment files are ignored; only `.env.example` is tracked. Exported nonempty settings take precedence over `.env`.
-
-Optional settings:
+The defaults require no `.env` edits. Optional non-secret settings (beside `package.json`):
 
 ```dotenv
+OLLAMA_MODEL=llama3.1:8b
 JARVIS_TTS_VOICE=bm_george
-# JARVIS_SPEECH_DIR=/absolute/path/to/local/speech
+# JARVIS_SPEECH_DIR=/your/existing/speech/directory
 ```
 
-`bm_george` is Kokoro's built-in British male preset, delivered at 0.92 speed for a measured, calm assistant tone. `bm_lewis` is another supported British male preset. Neither setup nor runtime uses voice cloning, reference recordings, or prompts targeting an actor. Perceived depth and style depend on the preset; no claim of matching a real person's voice is made.
+An exported setting takes precedence over the corresponding `.env` entry. Restart JARVIS after edits. If you choose another local model, download that exact tag with `ollama pull` first. There is deliberately no remote URL override: the application only connects to `http://127.0.0.1:11434`. Model names containing cloud tags or remote URL namespaces are rejected. Each turn checks `/api/show`; models with `remote_host`/`remote_model` metadata are blocked before inference, including aliases. A local GGUF chat model is required. There is no fallback to Grok, Fish, OpenAI, Ollama cloud, web search or external tools.
 
-If overriding `JARVIS_SPEECH_DIR`, export it in the same Terminal **before both setup and launch**, so the installer and app agree:
+Run the daemon with `OLLAMA_NO_CLOUD=1` as `start:ollama` does, so the service also disallows cloud inference. Running the Ollama GUI with its own settings is a different service lifecycle; setting this variable only on JARVIS does not reconfigure an already-running daemon. See [Ollama's local-only documentation](https://github.com/ollama/ollama/blob/main/docs/faq.mdx#how-do-i-disable-ollamas-cloud-features).
 
-```bash
-export JARVIS_SPEECH_DIR="$HOME/my-local-jarvis-speech"
-npm run setup:voice
-npm run build
-npm start
-```
-
-Restart JARVIS after editing settings. Credentials are read only in Electron main, removed from the inherited environment before the renderer starts, and are not forwarded to local speech processes. Keys, audio and subprocess output are never logged. Ordinary request summaries omit conversation text. Grok HTTP error bodies are now shown after credential redaction, as requested; providers may echo input text in an error body, so keep diagnostic output private. ONNX telemetry is disabled and runtime cloud-model fetching is disabled. Setup downloads public model artifacts; it does not send user audio to any endpoint.
+The current Whisper/Kokoro paths are preserved. API-key values and raw daemon errors, transcripts and replies are not logged by the app. The model's visible answer and local diagnostic answer are intentionally displayed. Speech processes retain their private stdin/environment handling and temporary-file cleanup.
 
 ## Using the HUD
 
 Click the microphone to begin **LISTENING**, speak, then click **Send utterance**. Clicking the microphone before sending discards the capture and enters **MUTED**. Capture is capped at 45 seconds / 8 MB. The input is encoded as WAV in memory; FFmpeg converts it to 16 kHz mono PCM16 for local Whisper.
 
-States: **IDLE → LISTENING → PROCESSING → SPEAKING → IDLE**. PROCESSING covers local transcription and Grok's response. Input tracks stop before processing and stay off throughout playback, preventing self-transcription. Clicking the microphone while processing or speaking cancels the turn and mutes. The existing waveform uses real microphone samples and then real playback samples; the existing core pulses with output audio. No always-on listening or wake phrase is enabled.
+States: **IDLE → LISTENING → PROCESSING → SPEAKING → IDLE**. PROCESSING covers local transcription and Ollama's response. Input tracks stop before processing and stay off throughout playback, preventing self-transcription. Clicking the microphone while processing or speaking cancels the turn and mutes. The existing waveform uses real microphone samples and then real playback samples; the existing core pulses with output audio. No always-on listening or wake phrase is enabled.
 
-The exact Grok response text is displayed and passed to local Kokoro, whose WAV plays through your default Mac output device. Three recent exchanges stay visible; ten exchanges remain in session memory and clear on restart. Grok uses the official `@xai-official/sdk` for model discovery and an explicit HTTP request to the xAI Responses API with `grok-4.20-0309-non-reasoning` preferred, `store: false`, and the existing concise JARVIS personality. No computer-control tools are enabled.
+The exact local model response text is displayed and passed to local Kokoro, whose WAV plays through your default Mac output device. Three recent exchanges stay visible; ten exchanges remain in session memory and clear on restart. Ollama receives the existing JARVIS personality plus session messages through its native `/api/chat` endpoint with `stream:false`. No computer-control tools are enabled. The assistant is instructed never to claim it performed an action: it cannot control your computer.
 
-Microphone permission failure shows **MICROPHONE PERMISSION REQUIRED**. Allow Electron in System Settings → Privacy & Security → Microphone. Missing Grok credentials show **CONFIGURATION REQUIRED**, without breaking the rest of the HUD. Missing local tools/models show **Local speech-to-text** or **Local text-to-speech** setup errors directing you to `npm run setup:voice`. Grok failures are separately labeled. A TTS failure retains Grok's visible text and conversation context. Terminal logs contain safe stage metadata, a request-parameter summary with conversation text omitted, and credential-redacted Grok HTTP error bodies.
+Microphone permission failure shows **MICROPHONE PERMISSION REQUIRED**. Allow Electron in System Settings → Privacy & Security → Microphone. Ollama needs no credentials. A stopped service reports that Ollama must be started; a missing model reports the appropriate `ollama pull` setup action. Cloud models, insufficient memory, malformed responses and timeouts have separate safe errors. Missing local tools/models show **Local speech-to-text** or **Local text-to-speech** setup errors directing you to `npm run setup:voice`. Ollama failures are separately labeled. A TTS failure retains the local model's visible text and conversation context. Terminal logs contain normalized stage/engine/timing/failure metadata only; no raw server body is printed.
 
 Temporary audio/transcript files live in private OS temporary directories and are deleted after success, cancellation or failure. They are never added to the Daily Tasks database. Text goes to Kokoro over stdin, not in process arguments. Local programs run without a shell; their raw output is discarded. Forced app termination/power loss may leave an OS temporary directory, which can be removed normally.
 
@@ -97,55 +92,17 @@ npm run build
 npm test
 ```
 
-Tests cover state transitions, session context/personality, cancellation, error redaction, Grok-only HTTP routing, local child-process contracts, private stdin/environment handling, missing models, WAV encoding and Daily Tasks persistence validation. Process fixtures exercise the adapters without requiring every contributor to download models. The installer separately runs a real local synthesis/transcription round-trip.
+Tests cover state transitions, session context/personality, cancellation, error redaction, loopback-only Ollama HTTP routing, cloud model blocking, local child-process contracts, private stdin/environment handling, missing models, WAV encoding and Daily Tasks persistence validation. Process fixtures exercise the adapters without requiring every contributor to download models. The installer separately runs a real local synthesis/transcription round-trip.
 
-Renderer checks: run `npm run preview -- --port 4173` in one terminal, then `npm run test:smoke` in another. These use system Chromium (`CHROMIUM_PATH` overrides `/usr/bin/chromium`), a simulated microphone and a mock assistant bridge to check tasks, clock, telemetry mapping, waveform, voice transitions/playback, echo prevention and responsive MacBook/mobile layouts. Browser preview has no native speech/Grok bridge. The test screenshot is `/workspace/jarvis-hud.png` in cloud.
+Renderer checks: run `npm run preview -- --port 4173` in one terminal, then `npm run test:smoke` in another. These use system Chromium (`CHROMIUM_PATH` overrides `/usr/bin/chromium`), a simulated microphone and a mock assistant bridge to check tasks, clock, telemetry mapping, waveform, voice transitions/playback, echo prevention and responsive MacBook/mobile layouts. Browser preview has no native speech/Ollama bridge. The test screenshot is `/workspace/jarvis-hud.png` in cloud.
 
-`npm run test:electron` checks real unconfigured Electron startup, isolated task persistence and native metrics on a machine with a display (Xvfb on Linux). No API key is needed for that check. Physical Mac permissions, speakers, Apple Silicon performance and your paid Grok API access need local validation.
+`npm run test:electron` checks real key-free Electron startup, isolated task persistence and native metrics on a machine with a display (Xvfb on Linux). No API key is needed for that check. Physical Mac permissions, speakers, Apple Silicon performance and your local Ollama model inference need local validation.
 
 ## Sources / licenses
 
-- [whisper.cpp](https://github.com/ggml-org/whisper.cpp) and [published model checksums](https://github.com/ggml-org/whisper.cpp/blob/master/models/README.md), MIT.
-- [kokoro-onnx](https://github.com/thewh1teagle/kokoro-onnx), MIT; [v1.0 model assets and digests](https://github.com/thewh1teagle/kokoro-onnx/releases/tag/model-files-v1.1); Kokoro model Apache 2.0.
-- [xAI official TypeScript SDK](https://github.com/xai-org/xai-sdk-ts). Only Grok requires an online API account; no Fish or other speech subscription/API key is used.
+- [Ollama native chat API](https://github.com/ollama/ollama/blob/main/docs/api.md#generate-a-chat-completion): `/api/chat`, `/api/show`, `messages`, `stream:false`, bounded `options` and `keep_alive`.
+- [Ollama](https://ollama.com) / [Llama 3.1 library](https://ollama.com/library/llama3.1). Model licensing is provided with the model; use `ollama show --license llama3.1:8b` to view it.
+- [whisper.cpp](https://github.com/ggml-org/whisper.cpp) and published model checksums, MIT.
+- [kokoro-onnx](https://github.com/thewh1teagle/kokoro-onnx), MIT; Kokoro model Apache 2.0.
 
-A packaged/signable macOS distribution is outside this setup; it needs microphone usage descriptions and appropriate signing/entitlements. This repository runs from the source checkout with `npm start`.
-
-
-## Grok model compatibility
-
-The previous request pinned `grok-4.7` and sent `reasoning.effort=low` unconditionally. The preferred chat model is now `grok-4.20-0309-non-reasoning`, listed in the official SDK model catalog and [xAI cookbook](https://github.com/xai-org/xai-cookbook/tree/main/examples/reviews-to-themes). Requests omit the optional reasoning control entirely. The endpoint remains `https://api.x.ai/v1/responses`; personality, session history, output limit, `store:false`, and local speech are unchanged.
-
-On the first response in a session, the app reads `/v1/models` with the existing key and selects the first listed chat model in this order: `grok-4.20-0309-non-reasoning`, `grok-4.3`, `grok-4.6`, `grok-4.7`. The selection is cached for that session. If none is listed, it reports model access clearly instead of guessing another model. A key whose catalog access is denied (403/404) can still attempt inference with the preferred/configured model; other catalog failures remain visible. No automatic repeated inference or paid fallback calls are made.
-
-Optional `GROK_MODEL` in the local `.env` selects a specific account-listed model without modifying the key or source. It is not required; keep your existing `.env` unchanged to use automatic selection. Model availability in a catalog is not proof of remaining account credits or inference permission: the authenticated response call on your Mac is the final access check. Logs contain only selection status, never credentials or account catalog contents.
-
-
-## Inspecting the actual Grok wire request and error
-
-The installed xAI SDK's `responses.create()` automatically adds `include: ["reasoning.encrypted_content"]` whenever `store: false` is set; it can also rewrite reasoning-related HTTP 400 messages. The previous tests asserted the model and app-supplied fields but did not reject SDK-added fields. A regression test now demonstrates this mutation against the actual installed SDK, and asserts that the production request has exactly the five explicitly supplied fields.
-
-JARVIS now sends the Responses request directly as JSON, avoiding that SDK mutation. It retains the same endpoint, selected model and Bearer authorization, session messages, output limit, and privacy settings:
-
-```json
-{
-  "model": "<existing account-selected model>",
-  "input": [{"role": "system", "content": "<personality>"}, {"role": "user", "content": "<transcript>"}],
-  "max_output_tokens": 2048,
-  "store": false,
-  "stream": false
-}
-```
-
-The SDK is still used for model discovery; no API key or `.env` setting is changed. There is no `include` or `reasoning` option, no endpoint/model guessing on HTTP 400, and no automatic inference retry. Whisper, Kokoro, the renderer, and HUD design are unchanged. The schema is defined by the installed official SDK's Responses types and [xAI's Responses API](https://docs.x.ai/developers/api-reference/responses).
-
-For a local live diagnosis without microphone or speech engines:
-
-```bash
-npm run build
-npm run diagnose:grok
-```
-
-This reads the existing local configuration and sends one fixed, short text prompt to the same selected model/endpoint used by JARVIS (normal Grok API charges may apply). `grok_request` shows the actual wire parameters with conversation contents omitted; it never logs Authorization headers. `grok_http_error` captures the **original complete response body**, including error message, code, parameter and extra fields, before SDK rewriting, with the API key/Bearer values and credential fields redacted. The existing HUD error area also displays that redacted body when a voice turn fails. Non-JSON bodies are retained too. Bodies exceeding the explicit 2 MB safety limit are reported as not captured rather than silently truncated. Errors are never replaced with a guessed model-support explanation when an HTTP body is available.
-
-The hidden SDK field is a verified request difference, **not proof of the cause of a particular Mac's live 400**. Prior versions discarded that response body, and this cloud task cannot retrieve historical responses or authenticate as your Mac. The live diagnostic is the remaining check: if it fails, its redacted response body identifies the server's actual rejection. No credentials should be shared to perform that check.
+A packaged/signable macOS distribution is outside this setup; it needs microphone usage descriptions and appropriate signing/entitlements. This repository runs from its existing source checkout with `npm start`.

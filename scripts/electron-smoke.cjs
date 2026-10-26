@@ -11,16 +11,14 @@ const fs=require('node:fs');const os=require('node:os');const path=require('node
  const page=await app.firstWindow();
  await app.evaluate(({app},profile)=>app.setPath('userData',profile),profile);
  await page.reload();
- await page.locator('#assistant-message').filter({hasText:'CONFIGURATION REQUIRED'}).waitFor();
- assert.equal(await page.evaluate(async()=> (await window.jarvis.assistantStatus()).configured),false);
- const denied=await page.evaluate(async()=>window.jarvis.assistantTurn(new Uint8Array(500),'audio/wav'));
- assert.equal(denied.message,'CONFIGURATION REQUIRED');
+ await page.locator('#assistant-message').filter({hasText:'Ollama'}).waitFor();
+ assert.equal(await page.evaluate(async()=> (await window.jarvis.assistantStatus()).configured),true);
  const metrics=await page.evaluate(()=>window.jarvis.metrics());assert(metrics.memoryTotal>0);assert(metrics.storageTotal>0);assert(metrics.uptime>0);
  await page.locator('#task-input').fill('Electron startup check');await page.locator('#task-form button').click();await page.getByLabel('Complete Electron startup check').check();
  await page.locator('#task-status').filter({hasText:'All objectives saved locally.'}).waitFor();
  await page.reload();await page.getByLabel('Complete Electron startup check').waitFor();assert(await page.getByLabel('Complete Electron startup check').isChecked());
  await page.getByLabel('Delete Electron startup check').click();
  assert.equal(await page.evaluate(()=>typeof window.require),'undefined');
- console.log('PASS: actual Electron starts without a key, CONFIGURATION REQUIRED, real OS metrics, IPC task persistence, isolated renderer');
+ console.log('PASS: actual Electron starts without any API key and initializes the local assistant, real OS metrics, IPC task persistence, isolated renderer');
  } finally {await app?.close();fs.rmSync(profile,{recursive:true,force:true});}
 })().catch(e=>{console.error(e.message);process.exitCode=1;});
