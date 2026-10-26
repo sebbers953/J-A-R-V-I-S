@@ -62,3 +62,19 @@ test('WAV encoder creates valid mono PCM16, downmixes channels, and clamps sampl
  const wav=encodeWav([new Float32Array([1,-1,2]),new Float32Array([1,-1,2])],48000);const view=new DataView(wav.buffer);
  assert.equal(Buffer.from(wav.subarray(0,4)).toString(),'RIFF');assert.equal(view.getUint16(22,true),1);assert.equal(view.getUint32(24,true),48000);assert.equal(view.getInt16(44,true),32767);assert.equal(view.getInt16(46,true),-32768);assert.equal(view.getInt16(48,true),32767);assert.throws(()=>encodeWav([],48000));
 });
+
+test('Fish voice configuration is captured from the environment and maps to reference_id only',async()=>{
+ const previous=process.env.FISH_AUDIO_MODEL_ID;
+ try {
+  for(const value of [undefined,'','your_model_id_here','placeholder-test-voice']) {
+   if(value===undefined)delete process.env.FISH_AUDIO_MODEL_ID;else process.env.FISH_AUDIO_MODEL_ID=value;
+   let body,backend;
+   const mock=async(_url,init)=>{body=decode(new Uint8Array(init.body));backend=init.headers.model;return new Response(payload.audio);};
+   const providers=new CloudProviders({grok:'your_grok_key_here',fish:'your_fish_audio_key_here'},mock);
+   delete process.env.FISH_AUDIO_MODEL_ID;
+   await providers.speak('Hello Seb.',new AbortController().signal);
+   assert.equal(body.reference_id,value==='placeholder-test-voice'?value:undefined);
+   assert.equal(backend,FISH_MODEL);assert.equal(body.text,'Hello Seb.');
+  }
+ } finally {if(previous===undefined)delete process.env.FISH_AUDIO_MODEL_ID;else process.env.FISH_AUDIO_MODEL_ID=previous;}
+});

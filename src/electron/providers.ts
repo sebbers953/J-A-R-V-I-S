@@ -15,7 +15,10 @@ export const FISH_MODEL = 's2.1-pro';
 // These HTTP contracts follow the providers' official SDKs (sources in README).
 export class CloudProviders implements VoiceProviders {
   private grok: SpaceXAI;
+  private readonly voiceId: string | undefined;
   constructor(private keys: ProviderKeys, private request: typeof fetch = fetch) {
+    const voiceId = process.env.FISH_AUDIO_MODEL_ID?.trim();
+    this.voiceId = voiceId && voiceId !== 'your_model_id_here' ? voiceId : undefined;
     // Never let an inherited debug flag enable SDK request logging.
     delete process.env.XAI_DEBUG;
     this.grok = new SpaceXAI({ apiKey: keys.grok!, baseURL: 'https://api.x.ai/v1', timeout: 60_000, maxRetries: 0, fetch: request });
@@ -45,7 +48,7 @@ export class CloudProviders implements VoiceProviders {
     return response.toText();
   }
   async speak(text: string, signal: AbortSignal) {
-    const body = encode({ text, format: 'wav' });
+    const body = encode({ text, format: 'wav', ...(this.voiceId ? { reference_id: this.voiceId } : {}) });
     const response = await this.fish('tts', new Uint8Array(body), signal, { 'Content-Type': 'application/msgpack', model: FISH_MODEL });
     const bytes = await boundedBytes(response, 20_000_000);
     if (!bytes.length) throw new ProviderError('Fish Audio', 502);

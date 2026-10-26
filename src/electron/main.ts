@@ -13,8 +13,9 @@ const exec = promisify(execFile);
 // Read credentials only here; never inject them into renderer or preload.
 let localConfig: Record<string,string> = {};
 try { localConfig = parse(readFileSync(join(app.getAppPath(), '.env'))); } catch { /* .env is optional. */ }
+if (!process.env.FISH_AUDIO_MODEL_ID && localConfig.FISH_AUDIO_MODEL_ID) process.env.FISH_AUDIO_MODEL_ID = localConfig.FISH_AUDIO_MODEL_ID;
 const assistant = new Assistant({ grok: process.env.GROK_API_KEY || localConfig.GROK_API_KEY, fish: process.env.FISH_AUDIO_API_KEY || localConfig.FISH_AUDIO_API_KEY });
-for (const name of ['GROK_API_KEY', 'FISH_AUDIO_API_KEY', 'XAI_API_KEY', 'XAI_DEBUG', 'OPENAI_API_KEY']) delete process.env[name];
+for (const name of ['GROK_API_KEY', 'FISH_AUDIO_API_KEY', 'FISH_AUDIO_MODEL_ID', 'XAI_API_KEY', 'XAI_DEBUG', 'OPENAI_API_KEY']) delete process.env[name];
 localConfig = {};
 if (!assistant.configured()) console.info('JARVIS: CONFIGURATION REQUIRED. Add GROK_API_KEY and FISH_AUDIO_API_KEY to the local .env in the J-A-R-V-I-S project folder, then restart.');
 let win: BrowserWindow | null = null;

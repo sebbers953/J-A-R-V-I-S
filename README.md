@@ -56,14 +56,15 @@ chmod 600 .env
 open -e .env
 ```
 
-Edit that local `.env` (beside `package.json`) to contain these two names with your own credentials replacing the placeholders:
+Edit that local `.env` (beside `package.json`) to contain these provider credentials and optional voice configuration, replacing the placeholders locally:
 
 ```dotenv
 GROK_API_KEY=your_grok_key_here
 FISH_AUDIO_API_KEY=your_fish_audio_key_here
+FISH_AUDIO_MODEL_ID=your_model_id_here
 ```
 
-`cp -n` preserves an existing `.env`; if you are upgrading, manually add/replace these two lines in it. The old provider key is no longer used and can be removed locally. For a clone at `~/J-A-R-V-I-S`, the exact file is `~/J-A-R-V-I-S/.env`. Never put credentials in source, chat, screenshots, or commits. Both providers require API access/billing; consumer chat subscriptions may not include API credits. No third provider credential is needed.
+`cp -n` preserves an existing `.env`; if you are upgrading, manually add/replace these configuration lines in it. The old provider key is no longer used and can be removed locally. For a clone at `~/J-A-R-V-I-S`, the exact file is `~/J-A-R-V-I-S/.env`. Never put credentials in source, chat, screenshots, or commits. Both providers require API access/billing; consumer chat subscriptions may not include API credits. No third provider credential is needed.
 
 Save the file, then run:
 
@@ -74,7 +75,7 @@ npm test
 npm start
 ```
 
-The app loads `.env` from the project root regardless of terminal working directory. Exported `GROK_API_KEY` and `FISH_AUDIO_API_KEY` take precedence over the corresponding file entries. Restart after editing. `.env`, `.env.local`, `.env.*`, and `*.env` remain Git-ignored; only the placeholder `.env.example` is tracked. Credentials are read only in Electron main, removed from the inherited environment before opening the renderer, and never returned through IPC. SDK debug request logging is disabled. The renderer has no provider client, credential access, or external API requests.
+The app loads `.env` from the project root regardless of terminal working directory. Exported `GROK_API_KEY`, `FISH_AUDIO_API_KEY`, and `FISH_AUDIO_MODEL_ID` take precedence over the corresponding file entries. Restart after editing. `.env`, `.env.local`, `.env.*`, and `*.env` remain Git-ignored; only the placeholder `.env.example` is tracked. Credentials are read only in Electron main, removed from the inherited environment before opening the renderer, and never returned through IPC. SDK debug request logging is disabled. The renderer has no provider client, credential access, or external API requests.
 
 If either key is missing or still a placeholder, the HUD displays **CONFIGURATION REQUIRED**, the main console gives safe setup instructions, and the application stays usable for tasks, telemetry, clock, and animations. Browser preview has no native provider bridge.
 
@@ -84,7 +85,7 @@ Click the microphone to start **LISTENING**, speak, then click **Send utterance*
 
 - **Grok reasoning:** official `@xai-official/sdk` (currently 0.2.5), Responses API at `https://api.x.ai/v1/responses`, model `grok-4.7`, low reasoning effort, no tools, and `store: false`. The existing JARVIS personality and ten-exchange in-memory conversation window are preserved; only three recent exchanges appear on the HUD.
 - **Fish transcription:** official HTTP endpoint `POST https://api.fish.audio/v1/asr`, multipart `audio` file plus `ignore_timestamps=true`.
-- **Fish voice:** official HTTP endpoint `POST https://api.fish.audio/v1/tts`, MessagePack body containing the exact response `text` and `format: wav`, with `model: s2.1-pro`. This uses the provider's default voice; no cloning, reference recording, or extra voice ID is required.
+- **Fish voice:** official HTTP endpoint `POST https://api.fish.audio/v1/tts`, MessagePack body containing the exact response `text` and `format: wav`, with `model: s2.1-pro`. Set optional `FISH_AUDIO_MODEL_ID` in your local `.env` to select your Fish voice via the TTS request's `reference_id`. This is a voice/model ID, distinct from the `s2.1-pro` synthesis backend header. When absent, blank, or still `your_model_id_here`, the default voice is used. The value stays in Electron main, is never logged or sent to the renderer, and takes effect after restarting.
 
 The Fish request contracts match the current official TypeScript SDK; HTTP is used directly to retain explicit cancellation, size limits, and sanitized errors. There is no OpenAI package, endpoint, transcription fallback, or API-key requirement. No transcripts or audio are saved to the task database. Audio goes to Fish Audio; conversation text/context goes to xAI. Each provider's API data policies apply. No computer-control capabilities are enabled.
 
