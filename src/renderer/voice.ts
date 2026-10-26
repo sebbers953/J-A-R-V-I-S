@@ -9,6 +9,7 @@ export function initVoice(api: JarvisAPI | undefined) {
   const canvas = el('waveform') as HTMLCanvasElement;
   const ctx = canvas.getContext('2d')!;
   let state: AssistantState = 'IDLE';
+  let waveformFrame=0,nativeWindowVisible=true;
   const continuous = el('continuous-voice') as HTMLInputElement;
   let deadline=0; let proposalPending=false;let controlsBusy=false;
   let detector:SilenceDetector|null=null;
@@ -63,6 +64,7 @@ export function initVoice(api: JarvisAPI | undefined) {
   }
   function mute() { window.dispatchEvent(new Event('jarvis-cancel-controls'));stopContinuous();window.dispatchEvent(new CustomEvent('jarvis-result',{detail:undefined}));generation++; requesting = false; cleanup(); void api?.assistantCancel().catch(()=>{}); transition('mute'); message('Muted. Click the microphone to start a new utterance.'); }
   function transcript(user: string, text: string) {
+    window.dispatchEvent(new CustomEvent('jarvis-transcript',{detail:{user,text}}));
     exchanges.push({user,text}); if (exchanges.length>3) exchanges.shift();
     el('conversation').replaceChildren();
     for (const turn of exchanges) for (const [name,content] of [['USER',turn.user],['JARVIS',turn.text]]) {
@@ -77,12 +79,14 @@ export function initVoice(api: JarvisAPI | undefined) {
       const decoded = await audio!.decodeAudioData(await blob.arrayBuffer());
       const bytes = encodeWav(Array.from({length:decoded.numberOfChannels},(_,i)=>decoded.getChannelData(i)),decoded.sampleRate);
       if (token!==generation) return;
+      const started=performance.now();
       const result = await api!.assistantTurn(bytes,'audio/wav');
       if (token!==generation) return;
       if (!result.ok) {
         if (result.user) transcript(result.user,'');
         fail(result.message); return;
       }
+      window.dispatchEvent(new CustomEvent('jarvis-turn-complete',{detail:performance.now()-started}));
       transcript(result.user,result.text);
       deadline=Date.now()+timeoutMs();
       window.dispatchEvent(new CustomEvent('jarvis-result',{detail:result.proposal}));
@@ -160,7 +164,8 @@ export function initVoice(api: JarvisAPI | undefined) {
     window.dispatchEvent(new CustomEvent('jarvis-result',{detail:undefined}));transition('interrupt');message('Interrupted. Microphone is off. Click it to start a new turn.');
   }
   mic.onclick=()=>void start(); send.onclick=submit;el('interrupt-voice').onclick=interrupt;
-  document.addEventListener('visibilitychange',()=>{if(document.hidden&&(continuous.checked||state==='LISTENING'))mute();});
+  const unsubscribeVisibility=api?.onWindowVisibility?.(visible=>{nativeWindowVisible=visible;if(!visible&&(continuous.checked||state==='LISTENING'))mute();syncWaveform();});
+  document.addEventListener('visibilitychange',()=>{if(document.hidden&&(continuous.checked||state==='LISTENING'))mute();syncWaveform();});
   transition();
   void (async()=>{
     try { configured=!!api && (await api.assistantStatus()).configured; }
@@ -169,16 +174,17 @@ export function initVoice(api: JarvisAPI | undefined) {
   })();
   let last=0;
   function draw(time=0) {
-    requestAnimationFrame(draw); if(document.hidden || time-last<33) return; last=time;
+    waveformFrame=0;if(document.hidden||!nativeWindowVisible)return;waveformFrame=requestAnimationFrame(draw);if(time-last<33)return;last=time;
     const ratio=Math.min(devicePixelRatio||1,2),width=canvas.clientWidth,height=canvas.clientHeight;
     if(canvas.width!==width*ratio || canvas.height!==height*ratio) {canvas.width=width*ratio;canvas.height=height*ratio;}
-    ctx.setTransform(ratio,0,0,ratio,0,0);ctx.clearRect(0,0,width,height);ctx.strokeStyle=analyser?'#5ef5ff':'#1f5365';ctx.lineWidth=1.5;ctx.beginPath();
+    ctx.setTransform(ratio,0,0,ratio,0,0);ctx.clearRect(0,0,width,height);ctx.strokeStyle=analyser?'#ff6875':'#51232a';ctx.lineWidth=1.5;ctx.beginPath();
     let energy=0;
     if(analyser) {analyser.getByteTimeDomainData(samples);samples.forEach((v,i)=>{const x=i/(samples.length-1)*width,y=height/2+(v-128)/128*height*.48; energy+=(v-128)**2; if(i)ctx.lineTo(x,y);else ctx.moveTo(x,y);});}
     else {ctx.moveTo(0,height/2);ctx.lineTo(width,height/2);}
     if(state==='LISTENING'&&detector){const rms=Math.sqrt(energy/samples.length)/128;if(rms>=detector.threshold)deadline=Date.now()+timeoutMs();if(detector.sample(rms,time))submit();}
     ctx.stroke(); document.body.style.setProperty('--audio-level',String(Math.min(1,Math.sqrt(energy/samples.length)/45)));
   }
-  draw();window.addEventListener('beforeunload',()=>{generation++;cleanup();void api?.assistantCancel().catch(()=>{});});
+  function syncWaveform(){cancelAnimationFrame(waveformFrame);waveformFrame=0;if(!document.hidden&&nativeWindowVisible)waveformFrame=requestAnimationFrame(draw);}
+  draw();window.addEventListener('beforeunload',()=>{cancelAnimationFrame(waveformFrame);unsubscribeVisibility?.();generation++;cleanup();void api?.assistantCancel().catch(()=>{});});
   return {pause:()=>{mute();message('Microphone off while managing local settings.');}};
 }

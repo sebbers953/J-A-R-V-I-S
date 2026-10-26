@@ -1,6 +1,6 @@
 # J.A.R.V.I.S.
 
-Electron + TypeScript desktop HUD with animated rings, live clock/date, native CPU/RAM/storage/battery/uptime, persistent Daily Tasks, and an explicit-capture voice assistant.
+Electron + TypeScript red/black V2 desktop HUD with an animated cratered moon and orbital stars, live clock/date, native CPU/RAM/storage/battery/uptime, persistent Daily Tasks, and an explicit-capture voice assistant.
 
 **Voice pipeline: microphone → local whisper.cpp → local Ollama (Llama 3.1 8B) → local Kokoro ONNX → speakers.** All inference stays on your Mac after the one-time downloads. No cloud AI API calls, API keys or paid speech services are used.
 
@@ -78,7 +78,7 @@ Microphone permission failure shows **MICROPHONE PERMISSION REQUIRED**. Allow El
 
 Temporary audio/transcript files live in private OS temporary directories and are deleted after success, cancellation or failure. They are never added to the Daily Tasks database. Text goes to Kokoro over stdin, not in process arguments. Local programs run without a shell; their raw output is discarded. Forced app termination/power loss may leave an OS temporary directory, which can be removed normally.
 
-The HUD layout, panels, cyan styling, animations, task checkboxes, telemetry and clock are preserved. Compact memory/control and conversation options are integrated below the existing microphone strip. Escape/header button toggles fullscreen; ⌘Q quits. `npm start` launches the existing production build; `npm run dev` builds then launches.
+The V2 presentation uses a red/black HUD, stationary J A R V I S lettering over a slowly rotating cratered moon, and depth-sorted orbital stars. HOME, MEMORY, TASKS, SYSTEM, HISTORY and SETTINGS organize the existing functionality. HOME has compact voice controls, real system data, today's tasks, quick actions and recent conversation; memory editing and detailed permissions are on their own pages. There is no Recent Action panel or mechanical moon ring. Escape/header button toggles fullscreen; ⌘Q quits. `npm start` launches the existing production build; `npm run dev` builds then launches.
 
 ## Tasks and system data
 
@@ -128,7 +128,7 @@ Keep your existing local Ollama service running. If it is stopped, run `npm run 
 
 ### Explicit durable memory
 
-Use **Memory & controls** under the microphone strip to inspect, add, edit, export or delete notes, or turn memory off. Opening this dialog stops microphone capture and continuous mode. Memory defaults to enabled, but saves happen only through explicit commands or the Save button. There is no automatic summarization or passive extraction from conversations.
+Use **MEMORY** in the sidebar to inspect, add, edit, export or delete notes, or turn memory off. Changing sections stops microphone capture and continuous mode. Memory defaults to enabled, but saves happen only through explicit commands or the Save button. There is no automatic summarization or passive extraction from conversations.
 
 Supported voice commands include:
 
@@ -139,7 +139,7 @@ Supported voice commands include:
 - “What do you remember about trading?”
 - “What were we working on last time?” (only explicitly stored project/summary entries)
 - “Forget that [exact stored text].” (requires the HUD confirmation)
-- “Disable memory.” (re-enable using the dialog)
+- “Disable memory.” (re-enable using MEMORY)
 
 SQLite lives outside the checkout at `app.getPath('userData')/memory.sqlite`, normally `~/Library/Application Support/jarvis-hud/memory.sqlite`. The file is mode 600. It is local plaintext, not an encrypted vault: use FileVault and your macOS account protections. Known credential-like content is refused and no memory content is logged. Detection is conservative and cannot identify every possible secret; do not submit credentials as notes. Exports contain private note text: select a new file outside the repository in the native Save dialog. Existing files are never overwritten. Database files and the default export filename pattern are Git-ignored.
 
@@ -157,7 +157,7 @@ Only the deterministic main-process dispatcher executes commands. Model output, 
 | “Play music” / “Pause music” | Apple Music must already be running. HUD confirmation; macOS may request **Automation** permission. Playback state is checked. Other players are currently unsupported. |
 | “Create a task to [title]” / “List my tasks” / “Complete task [exact title]” | Uses the same dated, atomic task store as the HUD. Ambiguous titles are refused. Concurrent stale HUD edits are rejected and reloaded, preserving voice-created tasks. |
 | “What is the date and time?” | Reads the local system clock directly. |
-| “Run shortcut [exact name]” | Allowlist its exact name in the dialog first, after reviewing it in Apple's Shortcuts app. Approval lasts this session only. Every run requires confirmation and warns about external/destructive effects. Exit status is checked; individual workflow effects are not independently verified. |
+| “Run shortcut [exact name]” | Allowlist its exact name in SETTINGS first, after reviewing it in Apple's Shortcuts app. Approval lasts this session only. Every run requires confirmation and warns about external/destructive effects. Exit status is checked; individual workflow effects are not independently verified. |
 | “List files in folder [name or ID]” / “Read file [relative.txt] in folder [name or ID]” | Choose a folder via the native picker first. Grants are read-only, revocable and session-only. Duplicate folder names require the shown ID. |
 
 No folders or shortcuts are preapproved. Whole-home/system/hidden folders are excluded by the picker. File access rejects traversal, hidden/credential filenames, symbolic links and oversized files; reads are restricted to UTF-8 `.txt`, `.md`, `.csv` up to 16 KB, displaying at most 4,000 characters. File content is not saved as memory automatically. macOS may separately request Documents/Desktop access; grant only the folders you intend to use. Do not approve folders being modified by untrusted programs concurrently.
@@ -168,10 +168,40 @@ Confirmations expire after 60 seconds, are single-use, and are invalidated by a 
 
 Push-to-talk remains the default on every launch. Explicitly check **Continuous conversation** in the microphone strip, then click the microphone to begin. This permits successive temporary captures until you mute, interrupt, turn the mode off, hide the app, encounter an error or reach the inactivity timeout. It never persists consent across launches. Raw audio exists only during an utterance and private temporary speech processing; speech helpers remove their temporary files. No audio archive is created.
 
-The dialog exposes silence duration (0.5–5 seconds, default 1.2) and idle timeout (15–300 seconds, default 30). An energy-based detector submits only after speech followed by silence; it is not a wake-word or speech-meaning detector and background noise can affect it. Captures remain capped at 45 seconds / 8 MB. Microphone tracks are stopped during transcription, generation and playback; after a reply, a 400 ms gap precedes the next capture. Pending action confirmations pause automatic resumption. Click **Interrupt** to stop playback immediately, abort an in-flight request and discard stale replies. It also disables continuous mode. Wake-word listening is unavailable and stays disabled; no additional listener/model is installed.
+SETTINGS exposes silence duration (0.5–5 seconds, default 1.2) and idle timeout (15–300 seconds, default 30). An energy-based detector submits only after speech followed by silence; it is not a wake-word or speech-meaning detector and background noise can affect it. Captures remain capped at 45 seconds / 8 MB. Microphone tracks are stopped during transcription, generation and playback; after a reply, a 400 ms gap precedes the next capture. Pending action confirmations pause automatic resumption. Click **Interrupt** to stop playback immediately, abort an in-flight request and discard stale replies. It also disables continuous mode. Wake-word listening is unavailable and stays disabled; no additional listener/model is installed.
 
-HUD labels are **IDLE, LISTENING, THINKING, SPEAKING, INTERRUPTED, ERROR, MUTED**. THINKING represents the existing internal PROCESSING state. Errors stop continuous mode and leave the text response visible if TTS failed; click the mic to recover. The British voice, local model, existing animations, RAM correction and all original panels remain unchanged. A single-instance lock prevents duplicate JARVIS windows from launching concurrent backends. No persistent second Ollama/Whisper/Kokoro service is launched: the existing serialized local speech helpers and Ollama service are reused.
+HUD labels are **IDLE, LISTENING, THINKING, SPEAKING, INTERRUPTED, ERROR, MUTED**. THINKING represents the existing internal PROCESSING state. Errors stop continuous mode and leave the text response visible if TTS failed; click the mic to recover. The British voice, local model, RAM correction and existing backend behavior remain unchanged; the frontend is organized into the V2 sections. A single-instance lock prevents duplicate JARVIS windows from launching concurrent backends. No persistent second Ollama/Whisper/Kokoro service is launched: the existing serialized local speech helpers and Ollama service are reused.
 
 ### Validation scope
 
 Unit/integration tests cover SQLite restart persistence/CRUD/disable, bounded relevant retrieval, credential refusal, explicit intent routing, expiring single-use confirmations, action validation, symlink/traversal restrictions, IPC sender/frame authorization, silence policy, state recovery and cancellation. Browser tests exercise simulated real microphone audio, silence-triggered sending, continuous resumption, stopped input during playback, immediate playback interruption and stale-reply handling. Electron tests exercise actual SQLite and preload IPC, memory management/export, task commands and denial of an unrelated window. Native macOS app/media/Shortcuts adapters are tested with a fake OS transport; actual macOS Automation/folder permissions, physical microphone/speaker behavior and installed local model performance still need verification on your Mac. No live Mac-control success is claimed by these Linux checks.
+
+
+## JARVIS V2 presentation and status
+
+- **HOME**: the moon/star core, Push/Continuous selector, microphone and contextual Send/Interrupt buttons, live system summary, today's tasks, recent conversation, and working app/website/file/media/shortcut quick actions. There is no Recent Action panel. “Open website” opens a validated URL after confirmation; it is not a search or browsing AI feature.
+- **MEMORY**: inspect, add, edit, export, delete and disable explicit durable notes. Existing SQLite storage is reused.
+- **TASKS**: the same dated task store and checkboxes as HOME, with the editor expanded.
+- **SYSTEM**: real telemetry plus separate capacity/used/cache/compressed/wired/swap/pressure details. Host data is sampled every two seconds while visible; failures show unavailable.
+- **HISTORY**: up to ten exchanges in renderer memory, including verified control feedback. This view clears on reload/quit and never writes conversation text to durable memory automatically. The existing bounded model session history remains in the main process.
+- **SETTINGS**: silence/timeout controls, approved read-only folders, reviewed shortcuts and privacy/permission information. No credentials are displayed or edited.
+
+The Ollama indicator uses a read-only, timeout-bounded main-process request to `http://127.0.0.1:11434/api/tags`, every ten seconds while visible. ONLINE means the local daemon replied and the configured model tag was present; it is not a claim that an inference has completed. MODEL MISSING and OFFLINE/UNAVAILABLE are explicit failure states. Health checks never start/load a model, capture speech, access cloud services or send authorization headers. LAST TURN is initially unknown and shows actual elapsed transcription + response + synthesis time only after a successful utterance; it is not a fabricated reasoning benchmark. Weather/location and unsupported telemetry are omitted.
+
+The celestial core uses one 2D canvas, 112 deterministic stars in four inclined orbital families, cached star sprites and a generated crater height map. Surface projection updates at most twice per second, orbital rendering at most 30 fps. The moon rotates in approximately 18 minutes; lettering is separate stationary HTML. Existing LISTENING/THINKING/SPEAKING states drive subtle motion/glow changes using actual audio amplitude. Approved successful confirmations trigger a short visual action pulse; an error causes a restrained darker tint/flicker. No WebGL, remote assets or new dependency is required.
+
+Native hide/minimize and show/restore events cross a boolean-only, sender-checked preload boundary. The core and waveform stop animation while hidden; polling pauses too. Offscreen sections, page visibility and reduced motion are independently respected. On Mac, manually verify minimize/restore, physical microphone/speakers, the current Whisper/Kokoro installation, local Llama inference, actual Automation/folder permissions, and Activity Monitor CPU/GPU usage under normal workloads. Linux software-rendering measurements do not establish M4 hardware GPU utilization.
+
+Validation includes the existing full unit/integration suite, browser voice/continuous/interruption/echo checks, real Electron memory/task/permission IPC tests, six-section navigation, native hide/show and isolated core lifecycle/performance checks (`node scripts/core-smoke.cjs`, optionally `CORE_ELECTRON_SMOKE=1`). Browser fixtures intentionally use mock telemetry/providers; production does not. Real Mac-control adapters retain their existing fake-OS tests; no live native Mac action is claimed from cloud validation.
+
+To update an existing Mac installation, quit JARVIS first and run inside the repository:
+
+```bash
+git pull --ff-only origin main
+npm ci
+npm run build
+npm test
+npm start
+```
+
+Leave your existing Ollama service running. If it is stopped, run `npm run start:ollama` in a separate terminal. Do not start a duplicate daemon or reinstall working speech engines. No `.env` edits, API credentials or new speech/model downloads are required for V2.

@@ -12,6 +12,7 @@ import { LocalFeatures, unavailableFeatures } from './local-features';
 import { ActionRunner } from './actions';
 import { macHost } from './mac-host';
 import { authorized } from './authorization';
+import { assistantHealth } from './health';
 import { collectMemory } from './memory';
 import { validateTasks, applyTaskSnapshot } from './tasks';
 import type { Metrics } from '../shared';
@@ -88,6 +89,8 @@ app.whenReady().then(() => {
     const controller=new AbortController();controlController=controller;
     try {const revision=features.revision;const result=await features.control(payload,controller.signal);if(features.revision!==revision)assistant.forgetSession();return result;} finally {controlController=null;}
   });
+  ipcMain.handle('assistant:health',event=>{assertTrusted(event);return assistantHealth(assistantConfig.model,assistantConfig.speech?.voice);});
+  ipcMain.handle('window:visibility',event=>{assertTrusted(event);return !!win&&win.isVisible()&&!win.isMinimized();});
   ipcMain.handle('assistant:status', event => ({ configured: trusted(event) && assistant.configured() }));
   ipcMain.handle('assistant:turn', (event, payload: unknown) => trusted(event) && !controlController ? assistant.turn(payload) : { ok: false, message: 'Request denied.' });
   ipcMain.handle('assistant:cancel', event => { if (trusted(event)) { assistant.cancel(); controlController?.abort(); } });
@@ -101,7 +104,10 @@ app.whenReady().then(() => {
   });
   ipcMain.handle('fullscreen', event => {assertTrusted(event);win?.setFullScreen(!win.isFullScreen());});
   const createWindow = () => {
-    win = new BrowserWindow({ width: 1440, height: 960, minWidth: 850, minHeight: 650, fullscreen: true, backgroundColor: '#030b12', title: 'JARVIS', webPreferences: { preload: join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
+    win = new BrowserWindow({ width: 1440, height: 960, minWidth: 850, minHeight: 650, fullscreen: true, backgroundColor: '#080506', title: 'JARVIS', webPreferences: { preload: join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
+    const window=win;
+    const visibility=()=>{if(!window.webContents.isDestroyed())window.webContents.send('window:visibility',window.isVisible()&&!window.isMinimized());};
+    window.on('hide',visibility);window.on('minimize',visibility);window.on('show',visibility);window.on('restore',visibility);
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     win.webContents.on('will-navigate', event => event.preventDefault());
     win.loadFile(join(__dirname, '../../index.html'));
