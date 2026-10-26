@@ -25,7 +25,7 @@ test('invalid payloads and provider errors never expose raw error text',async()=
  const {client}=fixture({respond:async()=>{throw {status:401,message:'DO NOT EXPOSE RAW PROVIDER DETAILS'};}});const a=new Assistant({},client);
  assert.equal((await a.turn({audio:new Uint8Array(9),mime:'text/plain'})).message,'Invalid audio input.');
  const result=await a.turn(payload);assert.equal(result.ok,false);assert.match(result.message,/authentication/);assert(!JSON.stringify(result).includes('DO NOT EXPOSE'));
- client.respond=async()=>{throw new Error('raw transport details');};assert.match((await a.turn(payload)).message,/Grok or Fish Audio unavailable/);
+ client.respond=async()=>{throw new Error('raw transport details');};assert.match((await a.turn(payload)).message,/Grok response failed/);
 });
 test('Fish TTS failure retains text and follow-up context; cancellation and overlap remain safe',async()=>{
  const {client,calls}=fixture({speak:async()=>{throw new Error('private details');}});const a=new Assistant({},client);const result=await a.turn(payload);assert.equal(result.ok,true);assert.equal(result.audio,null);assert.equal(result.text,'Hello Seb.');assert.match(result.warning,/Fish Audio/);
@@ -46,7 +46,7 @@ test('official xAI SDK and Fish HTTP contracts route each stage to its provider 
  const providers=new CloudProviders({grok:'your_grok_key_here',fish:'your_fish_audio_key_here'},mockFetch);
  const assistant=new Assistant({},providers);assert.equal((await assistant.turn(payload)).ok,true);
  assert.deepEqual(calls.map(c=>c.url),['https://api.fish.audio/v1/asr','https://api.x.ai/v1/responses','https://api.fish.audio/v1/tts']);
- const stt=await calls[0].request.formData();assert.equal(stt.get('audio').type,'audio/wav');assert.equal(stt.get('audio').name,'speech.wav');assert.equal(stt.get('ignore_timestamps'),'true');
+ const stt=decode(new Uint8Array(await calls[0].request.arrayBuffer()));assert.deepEqual(stt.audio,payload.audio);assert.equal(stt.ignore_timestamps,true);assert.equal(calls[0].request.headers.get('content-type'),'application/msgpack');
  const grok=await calls[1].request.json();assert.equal(grok.model,GROK_MODEL);assert.equal(grok.input[0].content,PERSONALITY);assert.equal(grok.store,false);
  const speech=decode(new Uint8Array(await calls[2].request.arrayBuffer()));assert.equal(speech.text,'Hello Seb.');assert.equal(speech.format,'wav');assert.equal(calls[2].request.headers.get('model'),FISH_MODEL);
  assert.equal(calls[0].request.headers.get('authorization'),'Bearer your_fish_audio_key_here');assert.equal(calls[1].request.headers.get('authorization'),'Bearer your_grok_key_here');assert.equal(calls[2].request.headers.get('authorization'),'Bearer your_fish_audio_key_here');

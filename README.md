@@ -84,21 +84,37 @@ Click the microphone to start **LISTENING**, speak, then click **Send utterance*
 ## Provider implementation
 
 - **Grok reasoning:** official `@xai-official/sdk` (currently 0.2.5), Responses API at `https://api.x.ai/v1/responses`, model `grok-4.7`, low reasoning effort, no tools, and `store: false`. The existing JARVIS personality and ten-exchange in-memory conversation window are preserved; only three recent exchanges appear on the HUD.
-- **Fish transcription:** official HTTP endpoint `POST https://api.fish.audio/v1/asr`, multipart `audio` file plus `ignore_timestamps=true`.
+- **Fish transcription:** official HTTP endpoint `POST https://api.fish.audio/v1/asr`, MessagePack body with the binary PCM16 WAV in `audio` and `ignore_timestamps: true`.
 - **Fish voice:** official HTTP endpoint `POST https://api.fish.audio/v1/tts`, MessagePack body containing the exact response `text` and `format: wav`, with `model: s2.1-pro`. Set optional `FISH_AUDIO_MODEL_ID` in your local `.env` to select your Fish voice via the TTS request's `reference_id`. This is a voice/model ID, distinct from the `s2.1-pro` synthesis backend header. When absent, blank, or still `your_model_id_here`, the default voice is used. The value stays in Electron main, is never logged or sent to the renderer, and takes effect after restarting.
 
-The Fish request contracts match the current official TypeScript SDK; HTTP is used directly to retain explicit cancellation, size limits, and sanitized errors. There is no OpenAI package, endpoint, transcription fallback, or API-key requirement. No transcripts or audio are saved to the task database. Audio goes to Fish Audio; conversation text/context goes to xAI. Each provider's API data policies apply. No computer-control capabilities are enabled.
+Fish ASR follows the current official Python SDK MessagePack contract (the TypeScript SDK has a differing multipart implementation); Fish TTS follows the official SDK MessagePack contract; HTTP is used directly to retain explicit cancellation, size limits, and sanitized errors. There is no OpenAI package, endpoint, transcription fallback, or API-key requirement. No transcripts or audio are saved to the task database. Audio goes to Fish Audio; conversation text/context goes to xAI. Each provider's API data policies apply. No computer-control capabilities are enabled.
 
 Official sources checked for these contracts:
 
 - [xAI TypeScript SDK](https://github.com/xai-org/xai-sdk-ts) and [official cookbook](https://github.com/xai-org/xai-cookbook/tree/main/examples/meeting-to-action-items/typescript)
-- [Fish Audio TypeScript SDK](https://github.com/fishaudio/fish-audio-typescript), especially its `speechToText` and `textToSpeech` clients
+- [Fish Audio Python ASR implementation](https://github.com/fishaudio/fish-audio-python/blob/main/src/fishaudio/resources/asr.py) and [ASR contract tests](https://github.com/fishaudio/fish-audio-python/blob/main/tests/unit/test_asr.py)
+- [Fish Audio TypeScript SDK](https://github.com/fishaudio/fish-audio-typescript), especially its `textToSpeech` client
 - [xAI API documentation](https://docs.x.ai/) and [Fish Audio API documentation](https://docs.fish.audio/)
 
-Permission failures show **MICROPHONE PERMISSION REQUIRED**. Provider/authentication/network errors are sanitized and return to IDLE. If Fish speech generation fails after Grok succeeds, the Grok text and history remain available and the HUD shows **Fish Audio voice unavailable**. Both provider requests and audio response sizes are bounded; input is limited to 8 MB. Cancellation aborts in-flight requests and discards late replies.
+Permission failures show **MICROPHONE PERMISSION REQUIRED**. Provider/authentication/network errors are sanitized and return to IDLE. If Fish speech generation fails after Grok succeeds, the Grok text and history remain available and the existing status area shows a stage-specific Fish Audio voice error. Both provider requests and audio response sizes are bounded; input is limited to 8 MB. Cancellation aborts in-flight requests and discards late replies.
 
 ## Assistant validation
 
 `npm test` covers all state transitions, missing credentials, WAV conversion, session history/personality, exact response-to-speech matching, API errors, TTS fallback, cancellation, overlapping turns, and the official provider wire contracts using in-memory HTTP mocks (no paid requests). `npm run test:smoke` uses a controlled provider bridge and WAV microphone fixture to exercise the full renderer voice turn, echo prevention, tasks, clock, telemetry, permission errors, and responsive layout. Start the preview server first as described above.
 
 `npm run test:electron` verifies real unconfigured Electron startup, native telemetry and isolated task persistence. Run it on an unconfigured checkout with no local provider keys and with a display (Xvfb on Linux). Paid live provider access and physical Mac microphone/speakers still require local validation.
+
+
+## Safe local pipeline diagnosis
+
+Launch from Terminal with `npm start` after rebuilding. Configuration logs identify whether the project-root `.env` loaded and the **source/presence only** of each setting. Nonempty exported shell settings take precedence over `.env`; whitespace-only exports now fall back to the file, and surrounding whitespace is trimmed. `env_file=missing` means `.env` is not beside this checkout's `package.json`; `unreadable` means the file could not be read. No key, voice ID, path value, transcript, response text, audio, raw exception, response body or HTTP header is logged.
+
+Each turn then logs `stage=transcription`, `stage=response`, and `stage=tts`, with `event=start/success/failed`, elapsed time and sanitized failure category/HTTP status. For example, this contains no credential or conversation data:
+
+```text
+[JARVIS] turn=1 stage=transcription provider=FishAudio event=failed elapsed_ms=120 category=invalid_request http_status=422
+```
+
+A transcription failure means the Grok request was not reached; a response failure means Fish transcription succeeded; a TTS failure retains the Grok text and history. HTTP 401 means authentication failure; 403 means denied API access; 404 means unavailable endpoint/model/voice; 400/415/422 indicate a rejected request; 429 means quota/rate limiting. A timeout or network/TLS error is classified separately. Configuration presence does not establish provider authorization or model access. The HUD layout is unchanged; the existing error area now names the failing stage. Request-format regression tests enforce binary MessagePack ASR, and diagnostic tests verify no sensitive values enter logs.
+
+Existing microphone waveform activity proves local capture, not successful remote transcription. The provider contract and stage tests use in-memory responses; they do not establish that a particular Mac's keys, network or account permissions work. Run a short utterance locally to verify those authenticated live calls.

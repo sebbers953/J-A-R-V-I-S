@@ -1,5 +1,6 @@
 import { SpaceXAI } from '@xai-official/sdk';
 import { encode } from '@msgpack/msgpack';
+import type { FailureKind } from './diagnostics';
 export interface ProviderKeys { grok?: string; fish?: string }
 export interface Message { role: 'user' | 'assistant'; content: string }
 export interface VoiceProviders {
@@ -8,7 +9,7 @@ export interface VoiceProviders {
   speak(text: string, signal: AbortSignal): Promise<Uint8Array>;
 }
 export class ProviderError extends Error {
-  constructor(public provider: 'Fish Audio' | 'Grok', public status: number) { super('Provider request failed'); }
+  constructor(public provider: 'Fish Audio' | 'Grok', public status: number, public kind?: FailureKind) { super('Provider request failed'); }
 }
 export const GROK_MODEL = 'grok-4.7';
 export const FISH_MODEL = 's2.1-pro';
@@ -32,12 +33,13 @@ export class CloudProviders implements VoiceProviders {
     return response;
   }
   async transcribe(audio: Uint8Array, signal: AbortSignal) {
-    const form = new FormData();
-    form.append('audio', new Blob([new Uint8Array(audio)], { type: 'audio/wav' }), 'speech.wav');
-    form.append('ignore_timestamps', 'true');
-    const response = await this.fish('asr', form, signal);
-    const data = JSON.parse(new TextDecoder().decode(await boundedBytes(response, 2_000_000))) as { text?: unknown };
-    if (typeof data.text !== 'string') throw new ProviderError('Fish Audio', 502);
+    // Fish's current Python SDK uses MessagePack with binary WAV, not multipart.
+    const body=encode({audio,ignore_timestamps:true});
+    const response = await this.fish('asr', new Uint8Array(body), signal, {'Content-Type':'application/msgpack'});
+    let data: { text?: unknown };
+    try { data=JSON.parse(new TextDecoder().decode(await boundedBytes(response,2_000_000))); }
+    catch(error) { if(error instanceof ProviderError) throw error; throw new ProviderError('Fish Audio',response.status,'invalid_response'); }
+    if (!data || typeof data.text !== 'string') throw new ProviderError('Fish Audio',response.status,'invalid_response');
     return data.text;
   }
   async respond(history: Message[], personality: string, signal: AbortSignal) {
@@ -45,21 +47,23 @@ export class CloudProviders implements VoiceProviders {
       model: GROK_MODEL, input: [{ role: 'system', content: personality }, ...history],
       max_output_tokens: 2048, reasoning: { effort: 'low' }, store: false, stream: false,
     }, { signal });
-    return response.toText();
+    const text=response.toText().trim();
+    if(!text) throw new ProviderError('Grok',200,'invalid_response');
+    return text;
   }
   async speak(text: string, signal: AbortSignal) {
     const body = encode({ text, format: 'wav', ...(this.voiceId ? { reference_id: this.voiceId } : {}) });
     const response = await this.fish('tts', new Uint8Array(body), signal, { 'Content-Type': 'application/msgpack', model: FISH_MODEL });
     const bytes = await boundedBytes(response, 20_000_000);
-    if (!bytes.length) throw new ProviderError('Fish Audio', 502);
+    if (bytes.length < 12 || new TextDecoder().decode(bytes.subarray(0,4))!=='RIFF' || new TextDecoder().decode(bytes.subarray(8,12))!=='WAVE') throw new ProviderError('Fish Audio',response.status,'invalid_response');
     return bytes;
   }
 }
 async function boundedBytes(response: Response, limit: number): Promise<Uint8Array> {
-  if (!response.body) throw new Error('Empty provider response');
+  if (!response.body) throw new ProviderError('Fish Audio',response.status,'invalid_response');
   const reader=response.body.getReader(); const chunks: Uint8Array[]=[];let total=0;
   try {
-    while (true) { const {value,done}=await reader.read(); if(done) break; total+=value.length; if(total>limit) throw new Error('Provider response too large'); chunks.push(value); }
+    while (true) { const {value,done}=await reader.read(); if(done) break; total+=value.length; if(total>limit) throw new ProviderError('Fish Audio',response.status,'response_too_large'); chunks.push(value); }
     const result=new Uint8Array(total);let offset=0; for(const chunk of chunks) {result.set(chunk,offset);offset+=chunk.length;} return result;
   } finally { await reader.cancel().catch(()=>{}); reader.releaseLock(); }
 }
