@@ -1,7 +1,7 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const {Assistant,PERSONALITY}=require('../dist/electron/electron/assistant.js');
-const {CloudProviders,GROK_MODEL,FISH_MODEL}=require('../dist/electron/electron/providers.js');
+const {CloudProviders,GROK_MODEL,FISH_MODEL,FISH_ASR_MODEL}=require('../dist/electron/electron/providers.js');
 const {decode}=require('@msgpack/msgpack');
 const {encodeWav}=require('../dist/electron/audio-wav.js');
 const {nextState}=require('../dist/electron/assistant-state.js');
@@ -46,7 +46,7 @@ test('official xAI SDK and Fish HTTP contracts route each stage to its provider 
  const providers=new CloudProviders({grok:'your_grok_key_here',fish:'your_fish_audio_key_here'},mockFetch);
  const assistant=new Assistant({},providers);assert.equal((await assistant.turn(payload)).ok,true);
  assert.deepEqual(calls.map(c=>c.url),['https://api.fish.audio/v1/asr','https://api.x.ai/v1/responses','https://api.fish.audio/v1/tts']);
- const stt=decode(new Uint8Array(await calls[0].request.arrayBuffer()));assert.deepEqual(stt.audio,payload.audio);assert.equal(stt.ignore_timestamps,true);assert.equal(calls[0].request.headers.get('content-type'),'application/msgpack');
+ const stt=decode(new Uint8Array(await calls[0].request.arrayBuffer()));assert.deepEqual(stt.audio,payload.audio);assert.equal(stt.ignore_timestamps,true);assert.equal(stt.diarize,false);assert.equal(stt.tag_audio_events,false);assert.equal(stt.reference_id,undefined);assert.equal(calls[0].request.headers.get('model'),FISH_ASR_MODEL);assert.equal(calls[0].request.headers.get('content-type'),'application/msgpack');
  const grok=await calls[1].request.json();assert.equal(grok.model,GROK_MODEL);assert.equal(grok.input[0].content,PERSONALITY);assert.equal(grok.store,false);
  const speech=decode(new Uint8Array(await calls[2].request.arrayBuffer()));assert.equal(speech.text,'Hello Seb.');assert.equal(speech.format,'wav');assert.equal(calls[2].request.headers.get('model'),FISH_MODEL);
  assert.equal(calls[0].request.headers.get('authorization'),'Bearer your_fish_audio_key_here');assert.equal(calls[1].request.headers.get('authorization'),'Bearer your_grok_key_here');assert.equal(calls[2].request.headers.get('authorization'),'Bearer your_fish_audio_key_here');

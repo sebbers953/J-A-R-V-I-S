@@ -12,6 +12,7 @@ export class ProviderError extends Error {
   constructor(public provider: 'Fish Audio' | 'Grok', public status: number, public kind?: FailureKind) { super('Provider request failed'); }
 }
 export const GROK_MODEL = 'grok-4.7';
+export const FISH_ASR_MODEL = 'transcribe-1-pro';
 export const FISH_MODEL = 's2.1-pro';
 // These HTTP contracts follow the providers' official SDKs (sources in README).
 export class CloudProviders implements VoiceProviders {
@@ -33,9 +34,10 @@ export class CloudProviders implements VoiceProviders {
     return response;
   }
   async transcribe(audio: Uint8Array, signal: AbortSignal) {
-    // Fish's current Python SDK uses MessagePack with binary WAV, not multipart.
-    const body=encode({audio,ignore_timestamps:true});
-    const response = await this.fish('asr', new Uint8Array(body), signal, {'Content-Type':'application/msgpack'});
+    // Both multipart and MessagePack are documented; use binary WAV MessagePack.
+    // Explicit ASR selection avoids silently falling back to transcribe-1.
+    const body=encode({audio,ignore_timestamps:true,diarize:false,tag_audio_events:false});
+    const response = await this.fish('asr', new Uint8Array(body), signal, {'Content-Type':'application/msgpack',model:FISH_ASR_MODEL});
     let data: { text?: unknown };
     try { data=JSON.parse(new TextDecoder().decode(await boundedBytes(response,2_000_000))); }
     catch(error) { if(error instanceof ProviderError) throw error; throw new ProviderError('Fish Audio',response.status,'invalid_response'); }
