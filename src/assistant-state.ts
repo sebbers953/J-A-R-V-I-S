@@ -4,8 +4,8 @@ export function nextState(state: AssistantState, event: VoiceEvent): AssistantSt
   if (event === 'mute') return 'MUTED';
   if (event === 'error') return 'IDLE';
   if (event === 'start' && (state === 'IDLE' || state === 'MUTED')) return 'LISTENING';
-  if (event === 'submit' && state === 'LISTENING') return 'THINKING';
-  if (event === 'reply' && state === 'THINKING') return 'SPEAKING';
-  if (event === 'finish' && (state === 'THINKING' || state === 'SPEAKING')) return 'IDLE';
+  if (event === 'submit' && state === 'LISTENING') return 'PROCESSING';
+  if (event === 'reply' && state === 'PROCESSING') return 'SPEAKING';
+  if (event === 'finish' && (state === 'PROCESSING' || state === 'SPEAKING')) return 'IDLE';
   return state;
 }

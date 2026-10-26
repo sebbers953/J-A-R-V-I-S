@@ -1,133 +1,112 @@
-# J.A.R.V.I.S. — Voice Assistant
+# J.A.R.V.I.S.
 
-An Electron + TypeScript desktop HUD with an animated core, local clock/date, live CPU and memory telemetry, storage usage, macOS battery status, persistent daily tasks, and an explicit-capture Grok + Fish Audio voice assistant.
+Electron + TypeScript desktop HUD with animated rings, live clock/date, native CPU/RAM/storage/battery/uptime, persistent Daily Tasks, and an explicit-capture voice assistant.
 
-## Run
+**Voice pipeline: microphone → local whisper.cpp → Grok/xAI → local Kokoro ONNX → speakers.** Fish Audio, paid speech services, and speech API credentials are not used. Grok remains remote and its normal API charges apply. Only transcript text and session conversation context go to xAI; microphone audio and synthesized voice stay on-device.
 
-Use Node.js 22.13+ (Node 24 recommended).
+## macOS installation / upgrade
 
-```sh
-npm ci
-npm run typecheck
-npm run build
-npm test
-npm start
-```
+Requires macOS with [Homebrew](https://brew.sh) on PATH and Node.js 24 LTS (minimum 22.13). Apple Silicon is recommended. Keep your existing local `.env` and `GROK_API_KEY` unchanged.
 
-`npm run dev` builds and launches Electron. `npm run preview` serves the production renderer for browser inspection; native telemetry is available only in Electron. Escape toggles fullscreen, as does the upper-right button. Close the window or use the operating system's quit shortcut to exit.
+From your existing clone:
 
-The desktop begins fullscreen. Tasks are scoped to the local calendar date, with earlier days retained on disk. The Electron app stores tasks atomically in `app.getPath('userData')/tasks.json` (on macOS, normally `~/Library/Application Support/jarvis-hud/tasks.json`). Browser preview uses separate browser local storage. Storage read failures leave existing data untouched and disable edits. Tasks and telemetry work without an API key; voice AI requires your own local Grok and Fish Audio API keys.
-
-Microphone capture begins only after clicking the microphone and granting permission. The waveform uses real time-domain samples from the selected default input. The circular microphone button toggles capture and releases the device when muted. IDLE means capture has not started, LISTENING means capture is active, and MUTED means capture has stopped. Permission failures are shown explicitly. Audio is captured in memory, then sent to Fish Audio only when you click Send (or reach the 45-second capture limit). Muting before Send discards the capture. macOS users may need to allow Electron in System Settings → Privacy & Security → Microphone. A packaged macOS distribution must include `NSMicrophoneUsageDescription` and signing/entitlements as appropriate; packaging is outside this milestone.
-
-CPU is measured from interval deltas, memory from OS totals, storage from filesystem statistics for the home volume, and battery from macOS `pmset -g batt`. Battery-less Macs and non-macOS hosts show unavailable battery status; CPU/memory/uptime work across supported desktop platforms. Linux cloud metrics describe the cloud host, not your Mac.
-
-## Structure
-
-- `src/electron/main.ts`: isolated desktop window, OS metrics, validated IPC, atomic JSON persistence.
-- `src/electron/preload.ts`: narrow typed bridge, with Node integration disabled in the renderer.
-- `src/renderer/`: responsive HUD, daily objectives, waveform and clock.
-- `src/shared.ts`: shared bridge types.
-- `scripts/tasks.test.cjs`: persistence payload validation tests (run after build).
-
-Build output is in `dist/`. The repository includes a frozen npm lockfile. Electron's binary download may require `ELECTRON_GET_USE_PROXY=1` in proxy-based environments. No secret is required to launch; configure the two local keys to enable voice AI. A graphical desktop is required for the Electron window; cloud browser checks do not validate physical macOS microphone or battery behavior.
-
-## Browser functional checks
-
-After building, run `npm run preview -- --port 4173` in one terminal and `npm run test:smoke` in another. The smoke test uses system Chromium (`CHROMIUM_PATH` overrides `/usr/bin/chromium`) and a simulated audio device. It checks task creation, completion and persistence across reloads, deletion, clock updates, microphone start/stop, mobile overflow, and renderer errors. Its screenshot is written to `/workspace/jarvis-hud.png`. Physical microphone capture and macOS battery status require a real Mac; they cannot be certified from a Linux cloud instance.
-
-
-## Reference HUD
-
-The interface uses independent CSS/SVG ring layers, a procedural SVG energy sphere, scanning and orbiting particle layers, and a live Canvas audio waveform. No background image or remote visual asset is used. Daily Tasks sits above System on the right; microphone controls sit below the central core. The UI adapts to MacBook desktop sizes and stacks on narrow screens. Reduced-motion preferences disable decorative animations, hidden pages pause them, and the audio canvas is capped at 30 FPS. GPU/temperature/fan readings, weather, app shortcuts, and media controls are not fabricated or included. The compact conversation area displays up to three recent exchanges without changing the HUD layout.
-
-System storage shows used/total space for the home volume (APFS may share its capacity with other volumes). Unavailable readings remain marked unavailable. Smoke tests additionally cover telemetry presentation with a controlled host fixture, permission denial, reduced motion, and 1280/1440/1512-pixel MacBook layouts. These fixtures verify UI mapping, not physical Mac hardware; CPU, RAM, storage, battery, and microphone hardware access should be checked on macOS.
-
-
-## Local voice AI setup on macOS
-
-From your existing cloned `J-A-R-V-I-S` directory, using Node 24 LTS:
-
-```sh
+```bash
 git pull --ff-only origin main
 npm ci
-cp -n .env.example .env
-chmod 600 .env
-open -e .env
-```
-
-Edit that local `.env` (beside `package.json`) to contain these provider credentials and optional voice configuration, replacing the placeholders locally:
-
-```dotenv
-GROK_API_KEY=your_grok_key_here
-FISH_AUDIO_API_KEY=your_fish_audio_key_here
-FISH_AUDIO_MODEL_ID=your_model_id_here
-```
-
-`cp -n` preserves an existing `.env`; if you are upgrading, manually add/replace these configuration lines in it. The old provider key is no longer used and can be removed locally. For a clone at `~/J-A-R-V-I-S`, the exact file is `~/J-A-R-V-I-S/.env`. Never put credentials in source, chat, screenshots, or commits. Both providers require API access/billing; consumer chat subscriptions may not include API credits. No third provider credential is needed.
-
-Save the file, then run:
-
-```sh
+npm run setup:voice
 npm run typecheck
 npm run build
 npm test
 npm start
 ```
 
-The app loads `.env` from the project root regardless of terminal working directory. Exported `GROK_API_KEY`, `FISH_AUDIO_API_KEY`, and `FISH_AUDIO_MODEL_ID` take precedence over the corresponding file entries. Restart after editing. `.env`, `.env.local`, `.env.*`, and `*.env` remain Git-ignored; only the placeholder `.env.example` is tracked. Credentials are read only in Electron main, removed from the inherited environment before opening the renderer, and never returned through IPC. SDK debug request logging is disabled. The renderer has no provider client, credential access, or external API requests.
+If Homebrew is not installed, install it using its official instructions at https://brew.sh first, then open a new Terminal. The setup command reports this prerequisite rather than silently installing a package manager. Homebrew may ask you to install Apple Command Line Tools or approve system installation steps.
 
-If either key is missing or still a placeholder, the HUD displays **CONFIGURATION REQUIRED**, the main console gives safe setup instructions, and the application stays usable for tasks, telemetry, clock, and animations. Browser preview has no native provider bridge.
+`npm run setup:voice`:
 
-Click the microphone to start **LISTENING**, speak, then click **Send utterance**. Muting before sending discards the capture; capture is also capped at 45 seconds. The renderer converts the recording to standard mono PCM16 WAV in memory. Electron main sends it to Fish Audio for transcription, sends the transcript and session context to Grok in **THINKING**, then sends Grok's exact response text to Fish Audio for speech. The transcript and answer remain visible. Playback uses the default Mac output device in **SPEAKING**; core and waveform react to playback samples. Microphone tracks stop before processing and remain off during playback, preventing self-transcription. Playback completion returns to **IDLE**. Clicking the microphone during processing/playback cancels and enters **MUTED**. No always-on listening or wake word is enabled; capture initiation remains separate from the turn service for future wake-word support.
+1. Installs Homebrew `whisper.cpp`, `ffmpeg`, and `python@3.12`.
+2. Creates an isolated Python environment and installs `kokoro-onnx==0.6.1` (ONNX Runtime, not PyTorch).
+3. Downloads the English Whisper `base.en` model, Kokoro v1.0 ONNX weights, and Kokoro voices. The model downloads total roughly 500 MB; allow at least 2 GB of free disk space plus any additional Homebrew dependencies.
+4. Verifies every model against `scripts/local-voice/models.json`: Whisper's published SHA-1 and Kokoro's published GitHub-release SHA-256 digests. TLS/checksum verification stays enabled. Incomplete downloads are removed, verified existing files are reused, and failed verification stops setup.
+5. Synthesizes a fixed test sentence with Kokoro and transcribes it with Whisper, with no API calls. It writes `runtime.json` only after this local round-trip succeeds.
 
-## Provider implementation
+The installer never reads or rewrites `.env`, API keys, or task data. It excludes known API keys from child-process environments. Internet is needed for installation/model downloads; both speech stages work offline afterward. Rerun setup to repair tools or models. On Apple Silicon, whisper.cpp uses its normal Metal acceleration; Kokoro runs on CPU with up to four threads to keep resource use reasonable. Voice models are retained between launches. Runtime model files are not part of Git.
 
-- **Grok reasoning:** official `@xai-official/sdk` (currently 0.2.5), Responses API at `https://api.x.ai/v1/responses`, model `grok-4.7`, low reasoning effort, no tools, and `store: false`. The existing JARVIS personality and ten-exchange in-memory conversation window are preserved; only three recent exchanges appear on the HUD.
-- **Fish transcription:** official HTTP endpoint `POST https://api.fish.audio/v1/asr`, explicit `model: transcribe-1-pro` header and a MessagePack body with binary PCM16 WAV in `audio`, `ignore_timestamps: true`, `diarize: false`, and `tag_audio_events: false` (plain single-speaker transcription).
-- **Fish voice:** official HTTP endpoint `POST https://api.fish.audio/v1/tts`, MessagePack body containing the exact response `text` and `format: wav`, with `model: s2.1-pro`. Set optional `FISH_AUDIO_MODEL_ID` in your local `.env` to select your Fish voice via the TTS request's `reference_id`. This is a voice/model ID, distinct from the `s2.1-pro` synthesis backend header. When absent, blank, or still `your_model_id_here`, the default voice is used. The value stays in Electron main, is never logged or sent to the renderer, and takes effect after restarting.
-
-Fish ASR uses the documented MessagePack contract (multipart is also supported); Fish TTS follows the official SDK MessagePack contract; HTTP is used directly to retain explicit cancellation, size limits, and sanitized errors. There is no OpenAI package, endpoint, transcription fallback, or API-key requirement. No transcripts or audio are saved to the task database. Audio goes to Fish Audio; conversation text/context goes to xAI. Each provider's API data policies apply. No computer-control capabilities are enabled.
-
-Official sources checked for these contracts:
-
-- [xAI TypeScript SDK](https://github.com/xai-org/xai-sdk-ts) and [official cookbook](https://github.com/xai-org/xai-cookbook/tree/main/examples/meeting-to-action-items/typescript)
-- [Fish Audio Python ASR implementation](https://github.com/fishaudio/fish-audio-python/blob/main/src/fishaudio/resources/asr.py) and [ASR contract tests](https://github.com/fishaudio/fish-audio-python/blob/main/tests/unit/test_asr.py)
-- [Fish Audio TypeScript SDK](https://github.com/fishaudio/fish-audio-typescript), especially its `textToSpeech` client
-- [xAI API documentation](https://docs.x.ai/) and [Fish Audio API documentation](https://docs.fish.audio/)
-
-Permission failures show **MICROPHONE PERMISSION REQUIRED**. Provider/authentication/network errors are sanitized and return to IDLE. If Fish speech generation fails after Grok succeeds, the Grok text and history remain available and the existing status area shows a stage-specific Fish Audio voice error. Both provider requests and audio response sizes are bounded; input is limited to 8 MB. Cancellation aborts in-flight requests and discards late replies.
-
-## Assistant validation
-
-`npm test` covers all state transitions, missing credentials, WAV conversion, session history/personality, exact response-to-speech matching, API errors, TTS fallback, cancellation, overlapping turns, and the official provider wire contracts using in-memory HTTP mocks (no paid requests). `npm run test:smoke` uses a controlled provider bridge and WAV microphone fixture to exercise the full renderer voice turn, echo prevention, tasks, clock, telemetry, permission errors, and responsive layout. Start the preview server first as described above.
-
-`npm run test:electron` verifies real unconfigured Electron startup, native telemetry and isolated task persistence. Run it on an unconfigured checkout with no local provider keys and with a display (Xvfb on Linux). Paid live provider access and physical Mac microphone/speakers still require local validation.
-
-
-## Safe local pipeline diagnosis
-
-Launch from Terminal with `npm start` after rebuilding. Configuration logs identify whether the project-root `.env` loaded and the **source/presence only** of each setting. Nonempty exported shell settings take precedence over `.env`; whitespace-only exports now fall back to the file, and surrounding whitespace is trimmed. `env_file=missing` means `.env` is not beside this checkout's `package.json`; `unreadable` means the file could not be read. No key, voice ID, path value, transcript, response text, audio, raw exception, response body or HTTP header is logged.
-
-Each turn then logs `stage=transcription`, `stage=response`, and `stage=tts`, with `event=start/success/failed`, elapsed time and sanitized failure category/HTTP status. For example, this contains no credential or conversation data:
+Default installation directory:
 
 ```text
-[JARVIS] turn=1 stage=transcription provider=FishAudio event=failed elapsed_ms=120 category=invalid_request http_status=422
+~/Library/Application Support/JARVIS/speech/
+  models/ggml-base.en.bin
+  models/kokoro-v1.0.onnx
+  models/voices-v1.0.bin
+  venv/
+  runtime.json
 ```
 
-A transcription failure means the Grok request was not reached; a response failure means Fish transcription succeeded; a TTS failure retains the Grok text and history. HTTP 401 means authentication failure; 402 means insufficient developer API credit/payment required; 403 means denied API access; 404 means unavailable endpoint/model/voice; 400/415/422 indicate a rejected request; 429 means quota/rate limiting. A timeout or network/TLS error is classified separately. Configuration presence does not establish provider authorization or model access. The HUD layout is unchanged; the existing error area now names the failing stage. Request-format regression tests enforce binary MessagePack ASR, and diagnostic tests verify no sensitive values enter logs.
+The first speech turn may take several seconds to load local models. Models are loaded per turn so no separate speech server is required and memory is released afterward. Speech processes time out after three minutes and are terminated when you cancel. This version uses English transcription.
 
-Existing microphone waveform activity proves local capture, not successful remote transcription. The provider contract and stage tests use in-memory responses; they do not establish that a particular Mac's keys, network or account permissions work. Run a short utterance locally to verify those authenticated live calls.
+## Local configuration
 
+The only required API setting is your existing `GROK_API_KEY`, in `.env` beside `package.json` (for example `~/J-A-R-V-I-S/.env`). Nothing in setup modifies that file or key. Old `FISH_AUDIO_API_KEY` and `FISH_AUDIO_MODEL_ID` entries are ignored; they are not required and may be left untouched.
 
-## Fish ASR HTTP 402 and Free-plan credits
+For a new checkout only, copy the placeholder template with `cp -n .env.example .env`, enter your Grok key privately using an editor, and use `chmod 600 .env`. Never put credentials in source, chat, screenshots, or Git. `.env`, `.env.local`, `.env.*`, and other environment files are ignored; only `.env.example` is tracked. Exported nonempty settings take precedence over `.env`.
 
-Fish's current [ASR documentation](https://docs.fish.audio/features/speech-to-text#errors) identifies HTTP **402** as **insufficient API credit**, a platform billing error. Its [error reference](https://docs.fish.audio/api-reference/errors) directs users to [developer API Billing](https://fish.audio/app/developers/billing/), rather than the web-plan credit meter. A web Free-plan balance (for example 8,000 credits) does not establish that the API key's developer wallet is funded. If developer API Billing already shows an adequate available balance, contact Fish support about that account/key's billing eligibility; JARVIS cannot inspect your dashboard or establish the account's balance from a 402 alone.
+Optional settings:
 
-[API pricing](https://docs.fish.audio/developer-guide/models-pricing/pricing-and-rate-limits) is pay-as-you-go, with no API subscription fee or monthly minimum. Both `transcribe-1` and recommended `transcribe-1-pro` are listed at $0.36 per audio hour. A paid web subscription is not documented as a prerequisite; sufficient developer API credit is required. No free ASR model is listed. The separately documented free TTS model `s2.1-pro-free` does not make ASR free, and JARVIS does not silently switch providers/models or retry HTTP 402.
+```dotenv
+JARVIS_TTS_VOICE=bm_george
+# JARVIS_SPEECH_DIR=/absolute/path/to/local/speech
+```
 
-Verified request contract: `POST https://api.fish.audio/v1/asr`, `Authorization: Bearer <API_KEY>`, `model: transcribe-1-pro`, and `Content-Type: application/msgpack` with binary audio. The [ASR API reference](https://docs.fish.audio/api-reference/endpoint/openapi-v1/speech-to-text) explicitly supports **both multipart and MessagePack**, so an HTTP 402 is not evidence of a format error. Without an exact ASR model header, Fish serves and bills `transcribe-1`; the app now selects Pro explicitly at the same listed price. `FISH_AUDIO_MODEL_ID` remains solely the **TTS voice** (`reference_id`), never an ASR model or billing setting.
+`bm_george` is Kokoro's built-in British male preset, delivered at 0.92 speed for a measured, calm assistant tone. `bm_lewis` is another supported British male preset. Neither setup nor runtime uses voice cloning, reference recordings, or prompts targeting an actor. Perceived depth and style depend on the preset; no claim of matching a real person's voice is made.
 
-The existing HUD error area now says insufficient developer API credit and directs you to Fish API Billing. Safe logs classify HTTP 402 as `category=payment_required` with the failing stage. Transcription rejection stops before Grok and TTS, retains the app in a usable state, and never logs provider response bodies, keys, or voice IDs. The HUD layout is unchanged.
+If overriding `JARVIS_SPEECH_DIR`, export it in the same Terminal **before both setup and launch**, so the installer and app agree:
 
-Sources were checked against Fish's current [official documentation repository](https://github.com/fishaudio/docs), including `features/speech-to-text.mdx`, `api-reference/errors.mdx`, and `developer-guide/models-pricing/pricing-and-rate-limits.mdx`.
+```bash
+export JARVIS_SPEECH_DIR="$HOME/my-local-jarvis-speech"
+npm run setup:voice
+npm run build
+npm start
+```
+
+Restart JARVIS after editing settings. Credentials are read only in Electron main, removed from the inherited environment before the renderer starts, and are not forwarded to local speech processes. No key, transcript, reply, audio, subprocess output, or raw provider error is logged. ONNX telemetry is disabled and runtime cloud-model fetching is disabled. Setup downloads public model artifacts; it does not send user audio to any endpoint.
+
+## Using the HUD
+
+Click the microphone to begin **LISTENING**, speak, then click **Send utterance**. Clicking the microphone before sending discards the capture and enters **MUTED**. Capture is capped at 45 seconds / 8 MB. The input is encoded as WAV in memory; FFmpeg converts it to 16 kHz mono PCM16 for local Whisper.
+
+States: **IDLE → LISTENING → PROCESSING → SPEAKING → IDLE**. PROCESSING covers local transcription and Grok's response. Input tracks stop before processing and stay off throughout playback, preventing self-transcription. Clicking the microphone while processing or speaking cancels the turn and mutes. The existing waveform uses real microphone samples and then real playback samples; the existing core pulses with output audio. No always-on listening or wake phrase is enabled.
+
+The exact Grok response text is displayed and passed to local Kokoro, whose WAV plays through your default Mac output device. Three recent exchanges stay visible; ten exchanges remain in session memory and clear on restart. Grok uses the official `@xai-official/sdk`, `grok-4.7` Responses API, `store: false`, and the existing concise JARVIS personality. No computer-control tools are enabled.
+
+Microphone permission failure shows **MICROPHONE PERMISSION REQUIRED**. Allow Electron in System Settings → Privacy & Security → Microphone. Missing Grok credentials show **CONFIGURATION REQUIRED**, without breaking the rest of the HUD. Missing local tools/models show **Local speech-to-text** or **Local text-to-speech** setup errors directing you to `npm run setup:voice`. Grok failures are separately labeled. A TTS failure retains Grok's visible text and conversation context. Safe terminal logs contain stage, engine, timing and normalized error category only.
+
+Temporary audio/transcript files live in private OS temporary directories and are deleted after success, cancellation or failure. They are never added to the Daily Tasks database. Text goes to Kokoro over stdin, not in process arguments. Local programs run without a shell; their raw output is discarded. Forced app termination/power loss may leave an OS temporary directory, which can be removed normally.
+
+The HUD layout, panels, cyan styling, animations, task checkboxes, telemetry and clock are preserved. Only voice status labels/protocol labels reflect the local pipeline. Escape/header button toggles fullscreen; ⌘Q quits. `npm start` launches the existing production build; `npm run dev` builds then launches.
+
+## Tasks and system data
+
+Tasks are scoped to local calendar dates; prior days are retained in `app.getPath('userData')/tasks.json` (normally `~/Library/Application Support/jarvis-hud/tasks.json` on macOS). Saves are atomic and validated. Read failures leave existing data intact and disable editing. CPU is measured from OS interval deltas, memory from OS totals, storage from home-volume statistics, uptime from the OS, and battery from macOS `pmset`. Unavailable readings are marked unavailable. Linux telemetry describes the cloud host, not your Mac.
+
+## Tests
+
+```bash
+npm run typecheck
+npm run build
+npm test
+```
+
+Tests cover state transitions, session context/personality, cancellation, error redaction, Grok-only HTTP routing, local child-process contracts, private stdin/environment handling, missing models, WAV encoding and Daily Tasks persistence validation. Process fixtures exercise the adapters without requiring every contributor to download models. The installer separately runs a real local synthesis/transcription round-trip.
+
+Renderer checks: run `npm run preview -- --port 4173` in one terminal, then `npm run test:smoke` in another. These use system Chromium (`CHROMIUM_PATH` overrides `/usr/bin/chromium`), a simulated microphone and a mock assistant bridge to check tasks, clock, telemetry mapping, waveform, voice transitions/playback, echo prevention and responsive MacBook/mobile layouts. Browser preview has no native speech/Grok bridge. The test screenshot is `/workspace/jarvis-hud.png` in cloud.
+
+`npm run test:electron` checks real unconfigured Electron startup, isolated task persistence and native metrics on a machine with a display (Xvfb on Linux). No API key is needed for that check. Physical Mac permissions, speakers, Apple Silicon performance and your paid Grok API access need local validation.
+
+## Sources / licenses
+
+- [whisper.cpp](https://github.com/ggml-org/whisper.cpp) and [published model checksums](https://github.com/ggml-org/whisper.cpp/blob/master/models/README.md), MIT.
+- [kokoro-onnx](https://github.com/thewh1teagle/kokoro-onnx), MIT; [v1.0 model assets and digests](https://github.com/thewh1teagle/kokoro-onnx/releases/tag/model-files-v1.1); Kokoro model Apache 2.0.
+- [xAI official TypeScript SDK](https://github.com/xai-org/xai-sdk-ts). Only Grok requires an online API account; no Fish or other speech subscription/API key is used.
+
+A packaged/signable macOS distribution is outside this setup; it needs microphone usage descriptions and appropriate signing/entitlements. This repository runs from the source checkout with `npm start`.

@@ -1,6 +1,6 @@
 export type Stage = 'transcription' | 'response' | 'tts';
-export type FailureKind = 'authentication' | 'payment_required' | 'permission' | 'not_found' | 'invalid_request' | 'rate_limit' | 'server' | 'timeout' | 'network' | 'invalid_response' | 'response_too_large' | 'cancelled' | 'unknown';
-const kinds: FailureKind[] = ['authentication','payment_required','permission','not_found','invalid_request','rate_limit','server','timeout','network','invalid_response','response_too_large','cancelled','unknown'];
+export type FailureKind = 'local_setup_required' | 'local_runtime_failed' | 'authentication' | 'payment_required' | 'permission' | 'not_found' | 'invalid_request' | 'rate_limit' | 'server' | 'timeout' | 'network' | 'invalid_response' | 'response_too_large' | 'cancelled' | 'unknown';
+const kinds: FailureKind[] = ['local_setup_required','local_runtime_failed','authentication','payment_required','permission','not_found','invalid_request','rate_limit','server','timeout','network','invalid_response','response_too_large','cancelled','unknown'];
 export function failureInfo(error: unknown): { kind: FailureKind; status?: number } {
   const e = error && typeof error === 'object' ? error as {status?: unknown; kind?: unknown; name?: unknown; code?: unknown; cause?: {code?: unknown}} : {};
   const status = typeof e.status === 'number' && Number.isInteger(e.status) && e.status>=100 && e.status<=599 ? e.status : undefined;
@@ -18,16 +18,18 @@ export function failureInfo(error: unknown): { kind: FailureKind; status?: numbe
   return {kind:'unknown',status};
 }
 export function stageLabel(stage: Stage): string {
-  return stage === 'transcription' ? 'Fish Audio transcription' : stage === 'response' ? 'Grok response' : 'Fish Audio voice';
+  return stage === 'transcription' ? 'Local speech-to-text' : stage === 'response' ? 'Grok response' : 'Local text-to-speech';
 }
 export function failureMessage(stage: Stage, error: unknown): string {
   const {kind,status}=failureInfo(error);
   const hints: Record<FailureKind,string> = {
+    local_setup_required:'local speech tools/models are missing or misconfigured; run npm run setup:voice',
+    local_runtime_failed:'local speech engine failed; rerun npm run setup:voice and retry',
     authentication:'authentication failed; check the local API key',
-    payment_required:stage==='response'?'API payment required; check xAI API billing':'insufficient developer API credit; check Fish API Billing, not the web-plan credit meter',
+    payment_required:stage==='response'?'API payment required; check xAI API billing':'unexpected payment error in a local speech stage',
     permission:'access denied; check API permissions and credits',
-    not_found:stage==='response'?'model or endpoint unavailable; check Grok model access':stage==='tts'?'voice/model or endpoint unavailable; check Fish voice access':'transcription endpoint unavailable',
-    invalid_request:stage==='tts'?'request rejected; check Fish voice/model configuration':stage==='transcription'?'audio request rejected; check the transcription format':'request rejected; check Grok model support',
+    not_found:stage==='response'?'model or endpoint unavailable; check Grok model access':stage==='tts'?'local voice/model unavailable; rerun setup:voice':'local transcription tool unavailable',
+    invalid_request:stage==='tts'?'local speech input rejected':stage==='transcription'?'local audio input rejected':'request rejected; check Grok model support',
     rate_limit:'quota or rate limit reached',server:'provider service unavailable',timeout:'request timed out',network:'network or TLS connection failed',
     invalid_response:'unexpected provider response',response_too_large:'provider response exceeded the size limit',cancelled:'cancelled',unknown:'request failed; see the main-process stage log',
   };
@@ -37,5 +39,5 @@ export function failureMessage(stage: Stage, error: unknown): string {
 // Never pass an Error, provider body, URL query, header, transcript, audio, or env value here.
 export function logStage(turn: number, stage: Stage, event: 'start' | 'success' | 'failed' | 'cancelled', elapsedMs = 0, error?: unknown) {
   const info=event==='cancelled' ? {kind:'cancelled' as FailureKind} : error === undefined ? undefined : failureInfo(error);
-  console.info(`[JARVIS] turn=${turn} stage=${stage} provider=${stage==='response'?'xAI':'FishAudio'} event=${event} elapsed_ms=${Math.max(0,Math.round(elapsedMs))}${info ? ` category=${info.kind}${info.status ? ` http_status=${info.status}` : ''}` : ''}`);
+  console.info(`[JARVIS] turn=${turn} stage=${stage} provider=${stage==='response'?'xAI':stage==='transcription'?'whisper.cpp':'Kokoro'} event=${event} elapsed_ms=${Math.max(0,Math.round(elapsedMs))}${info ? ` category=${info.kind}${info.status ? ` http_status=${info.status}` : ''}` : ''}`);
 }

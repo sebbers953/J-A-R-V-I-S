@@ -10,7 +10,7 @@ export class Assistant {
   private controller: AbortController | null = null;
   constructor(keys: ProviderKeys = {}, client?: VoiceProviders) {
     const usable = (value?: string) => !!value?.trim() && !/^your_.*key_here$/.test(value) && value !== 'your_key_here';
-    this.client = client ?? (usable(keys.grok) && usable(keys.fish) ? new CloudProviders(keys) : null);
+    this.client = client ?? (usable(keys.grok) ? new CloudProviders(keys) : null);
   }
   configured() { return this.client !== null; }
   cancel() { this.controller?.abort(); }

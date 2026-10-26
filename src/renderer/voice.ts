@@ -24,7 +24,7 @@ export function initVoice(api: JarvisAPI | undefined) {
     document.body.dataset.voice = state.toLowerCase();
     send.disabled = state !== 'LISTENING';
     mic.setAttribute('aria-pressed',String(state === 'LISTENING'));
-    mic.setAttribute('aria-label',state === 'LISTENING' ? 'Mute microphone' : state === 'THINKING' || state === 'SPEAKING' ? 'Cancel and mute assistant' : 'Unmute microphone');
+    mic.setAttribute('aria-label',state === 'LISTENING' ? 'Mute microphone' : state === 'PROCESSING' || state === 'SPEAKING' ? 'Cancel and mute assistant' : 'Unmute microphone');
   }
   function releaseInput() {
     clearTimeout(timer);
@@ -84,7 +84,7 @@ export function initVoice(api: JarvisAPI | undefined) {
     active.onstop=()=>{
       if(token!==generation) return;
       const blob=new Blob(chunks,{type:mime});
-      releaseInput(); transition('submit'); message('Transcribing and thinking…'); void processCapture(blob,token);
+      releaseInput(); transition('submit'); message('Transcribing locally and processing…'); void processCapture(blob,token);
     };
     clearTimeout(timer); active.stop();
     // Stop accepting microphone samples immediately, including the final recorder callback.
@@ -93,7 +93,7 @@ export function initVoice(api: JarvisAPI | undefined) {
   let chunks: Blob[]=[];
   async function start() {
     if(requesting) return;
-    if(state==='LISTENING' || state==='THINKING' || state==='SPEAKING') { mute(); return; }
+    if(state==='LISTENING' || state==='PROCESSING' || state==='SPEAKING') { mute(); return; }
     if(!configured) { message('CONFIGURATION REQUIRED'); return; }
     requesting=true; const token=++generation; message('Requesting microphone…');
     try {
@@ -121,7 +121,7 @@ export function initVoice(api: JarvisAPI | undefined) {
   void (async()=>{
     try { configured=!!api && (await api.assistantStatus()).configured; }
     catch { configured=false; }
-    message(configured ? 'Click the microphone to speak. Audio is sent to Fish Audio only when submitted.' : 'CONFIGURATION REQUIRED');
+    message(configured ? 'Click the microphone to speak. Speech stays on-device; transcript text is sent to Grok.' : 'CONFIGURATION REQUIRED');
   })();
   let last=0;
   function draw(time=0) {
