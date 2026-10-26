@@ -1,3 +1,6 @@
+import { parse } from 'dotenv';
+import { readFileSync } from 'node:fs';
+import { Assistant } from './assistant';
 import { app, BrowserWindow, ipcMain, session, systemPreferences } from 'electron';
 import { cpus, freemem, totalmem, uptime, hostname, platform } from 'node:os';
 import { readFile, writeFile, mkdir, rename, statfs } from 'node:fs/promises';
@@ -7,6 +10,13 @@ import { promisify } from 'node:util';
 import { validateTasks } from './tasks';
 import type { Metrics } from '../shared';
 const exec = promisify(execFile);
+// Read credentials only here; never inject them into renderer or preload.
+let localKey: string | undefined;
+try { localKey = parse(readFileSync(join(app.getAppPath(), '.env'))).OPENAI_API_KEY; } catch { /* .env is optional. */ }
+const assistant = new Assistant(process.env.OPENAI_API_KEY || localKey);
+delete process.env.OPENAI_API_KEY;
+localKey = undefined;
+if (!assistant.configured()) console.info('JARVIS: CONFIGURATION REQUIRED. Add OPENAI_API_KEY to the local .env in the J-A-R-V-I-S project folder, then restart.');
 let win: BrowserWindow | null = null;
 let previous = cpus();
 let saveQueue: Promise<void> = Promise.resolve();
@@ -28,6 +38,10 @@ app.whenReady().then(() => {
     callback(process.platform !== 'darwin' || await systemPreferences.askForMediaAccess('microphone'));
   });
   session.defaultSession.setPermissionCheckHandler((contents, permission, _origin, details) => contents === win?.webContents && permission === 'media' && details.mediaType === 'audio');
+  const trusted = (event: Electron.IpcMainInvokeEvent) => event.sender === win?.webContents && event.senderFrame === win.webContents.mainFrame;
+  ipcMain.handle('assistant:status', event => ({ configured: trusted(event) && assistant.configured() }));
+  ipcMain.handle('assistant:turn', (event, payload: unknown) => trusted(event) ? assistant.turn(payload) : { ok: false, message: 'Request denied.' });
+  ipcMain.handle('assistant:cancel', event => { if (trusted(event)) assistant.cancel(); });
   ipcMain.handle('metrics', () => metrics());
   ipcMain.handle('tasks:load', async () => { try { return validateTasks(JSON.parse(await readFile(taskPath(), 'utf8'))); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []; throw error; } });
   ipcMain.handle('tasks:save', (_event, value: unknown) => {
@@ -41,7 +55,7 @@ app.whenReady().then(() => {
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     win.webContents.on('will-navigate', event => event.preventDefault());
     win.loadFile(join(__dirname, '../../index.html'));
-    win.on('closed', () => { win = null; });
+    win.on('closed', () => { assistant.cancel(); win = null; });
   };
   createWindow(); app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow(); });
 });

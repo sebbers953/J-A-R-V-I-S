@@ -1,4 +1,5 @@
 import './style.css';
+import { initVoice } from './voice';
 import type { JarvisAPI, Task } from '../shared';
 declare global { interface Window { jarvis?: JarvisAPI } }
 const app = document.querySelector<HTMLDivElement>('#app')!;
@@ -7,7 +8,7 @@ app.innerHTML = `
 <header><div class="brand hud-frame"><div>J A R V I S</div><small>ASSISTANT · SYSTEM · FOCUS · CONTROL</small></div><div class="timeblock"><time id="clock"></time><div id="date"></div></div><div class="header-status"><i></i> LOCAL SYSTEM <button id="fullscreen" title="Toggle fullscreen" aria-label="Toggle fullscreen">⛶</button></div></header>
 <main><div class="left-markings" aria-hidden="true"><span>J / 01</span><div></div><span>NEURAL<br>INTERFACE</span><div></div><span>LOCAL<br>PROTOCOL</span></div><section class="core-section"><div class="core-top"><span>NEURAL ENGINE / ONLINE</span><span>J.A.R.V.I.S. / 01</span></div><div class="core" aria-label="Animated multilayer JARVIS core">
 <div class="orbit boundary"></div><div class="orbit arc-outer"></div><div class="orbit ticks"></div><div class="orbit arc-middle"></div><div class="orbit fine-ring"></div><div class="orbit segments"></div><div class="orbit arc-inner"></div><div class="scanner"></div><div class="sphere"><svg viewBox="0 0 240 240" aria-hidden="true"><defs><radialGradient id="orb"><stop stop-color="#062b69"/><stop offset=".78" stop-color="#024989"/><stop offset="1" stop-color="#49eaff"/></radialGradient><clipPath id="ball"><circle cx="120" cy="120" r="110"/></clipPath></defs><circle cx="120" cy="120" r="110" fill="url(#orb)"/><g clip-path="url(#ball)" class="sphere-lines">${Array.from({length:12},(_,i)=>`<ellipse cx="120" cy="120" rx="${20+i*9}" ry="109" transform="rotate(${i*29} 120 120)"/>`).join('')}<path d="M-10 140 Q40 10 100 120 T250 80 M-10 160 Q70 240 140 70 T260 120 M-10 80 Q90 210 150 100 T260 170"/></g></svg><div class="sphere-glow"></div><span>JARVIS<small id="core-status">IDLE</small></span></div><div class="orbit particles">${Array.from({length:16},(_,i)=>`<i style="--angle:${i*22.5}deg;--distance:${i%2?43:48}%"></i>`).join('')}</div><div class="crosshair horizontal"></div><div class="crosshair vertical"></div><b class="target t-top"></b><b class="target t-right"></b><b class="target t-bottom"></b><b class="target t-left"></b></div>
-<section class="voice"><div class="voice-top"><span>AUDIO INPUT / LOCAL</span><span id="mic-status" role="status">IDLE</span></div><div class="voice-control"><canvas id="waveform" aria-label="Live microphone waveform"></canvas><button id="microphone" aria-label="Unmute microphone" aria-pressed="false"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="12" y="3" width="8" height="17" rx="4"/><path d="M8 14v3a8 8 0 0 0 16 0v-3M16 25v5M11 30h10"/></svg></button></div><div class="voice-bottom"><span>NO RECORDING · NO TRANSMISSION</span><span id="voice-state">IDLE</span></div></section></section>
+<section class="voice"><div class="voice-top"><span>VOICE ASSISTANT</span><span id="mic-status" role="status">IDLE</span></div><div class="voice-control"><canvas id="waveform" aria-label="Live microphone waveform"></canvas><button id="microphone" aria-label="Unmute microphone" aria-pressed="false"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="12" y="3" width="8" height="17" rx="4"/><path d="M8 14v3a8 8 0 0 0 16 0v-3M16 25v5M11 30h10"/></svg></button></div><div class="voice-bottom"><span>EXPLICIT CAPTURE · OPENAI</span><span id="voice-state">IDLE</span></div><div class="assistant-controls"><button id="send-voice" disabled>Send utterance</button><span id="assistant-message" role="status">Checking configuration…</span></div><div id="conversation" aria-label="Recent conversation" role="log"></div></section></section>
 <aside class="right-panels"><section class="panel tasks"><div class="panel-title"><span>▦ &nbsp; DAILY TASKS</span><span id="task-count">00</span></div><div class="task-heading"><span>TODAY'S OBJECTIVES</span><span id="completion">0% COMPLETE</span></div><div class="bar"><i id="task-bar"></i></div><form id="task-form"><input id="task-input" aria-label="New daily task" placeholder="Add an objective…" maxlength="300" required><button title="Add task" aria-label="Add task">+</button></form><div id="task-list"></div><p id="task-status" class="hint" role="status"></p></section>
 <section class="panel system"><div class="panel-title"><span>⚙ &nbsp; SYSTEM</span><span id="platform">HOST</span></div><div class="machine" id="machine">CONNECTING</div><div class="gauges">${gauge('cpu','CPU')}${gauge('memory','RAM')}${gauge('storage','SSD')}</div><div class="system-bottom"><div><small>SYSTEM UPTIME</small><strong id="uptime">—</strong></div><div><small>BATTERY</small><strong id="battery">—</strong><div class="bar"><i id="battery-bar"></i></div></div></div><p class="hint" id="telemetry-status">Reading host metrics…</p></section></aside></main><footer><span>JARVIS / LOCAL INTERFACE <b>01</b></span><span><i></i> SECURE LOCAL SESSION</span><span>ESC · TOGGLE FULLSCREEN</span></footer>`;
 const el = (id: string) => document.getElementById(id)!;
@@ -48,30 +49,6 @@ async function updateMetrics() {
   } catch { el('telemetry-status').textContent = 'Telemetry unavailable · retrying…'; }
 }
 void updateMetrics(); setInterval(() => void updateMetrics(), 2000);
-const canvas = el('waveform') as HTMLCanvasElement; const ctx = canvas.getContext('2d')!; let stream: MediaStream | null = null; let audio: AudioContext | null = null; let analyser: AnalyserNode | null = null; let micPending = false;
-type VoiceState = 'IDLE' | 'LISTENING' | 'MUTED';
-function setVoice(state: VoiceState) {
-  el('mic-status').textContent = state; el('voice-state').textContent = state; el('core-status').textContent = state;
-  document.body.dataset.voice = state.toLowerCase();
-  el('microphone').setAttribute('aria-label',state === 'LISTENING' ? 'Mute microphone' : 'Unmute microphone');
-  el('microphone').setAttribute('aria-pressed',String(state === 'LISTENING'));
-}
-function stopMic() { stream?.getTracks().forEach(t => { t.onended = null; t.stop(); }); stream = null; void audio?.close(); audio = null; analyser = null; setVoice('MUTED'); }
-el('microphone').onclick = async () => {
-  if (micPending) return;
-  if (stream) { stopMic(); return; }
-  micPending = true; el('mic-status').textContent = 'REQUESTING PERMISSION';
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-    audio = new AudioContext(); await audio.resume(); analyser = audio.createAnalyser(); analyser.fftSize = 1024;
-    audio.createMediaStreamSource(stream).connect(analyser); stream.getAudioTracks()[0].onended = stopMic; setVoice('LISTENING');
-  } catch { stopMic(); el('mic-status').textContent = 'MIC UNAVAILABLE / CHECK PERMISSION'; }
-  finally { micPending = false; }
-};
-setVoice('IDLE');
-const samples = new Uint8Array(1024);
-let lastFrame = 0;
-function drawWave(timestamp = 0) { requestAnimationFrame(drawWave); if (document.hidden || timestamp-lastFrame < 33) return; lastFrame = timestamp; const ratio = window.devicePixelRatio || 1; const width = canvas.clientWidth; const height = canvas.clientHeight; if (canvas.width !== width*ratio || canvas.height !== height*ratio) { canvas.width = width*ratio; canvas.height = height*ratio; } ctx.setTransform(ratio,0,0,ratio,0,0); ctx.clearRect(0,0,width,height); ctx.strokeStyle = analyser ? '#5ef5ff' : '#1f5365'; ctx.lineWidth = 1.5; ctx.beginPath(); if (analyser) { analyser.getByteTimeDomainData(samples); samples.forEach((v,i) => { const x = i/(samples.length-1)*width; const y = height/2+(v-128)/128*height*.48; if (!i) ctx.moveTo(x,y); else ctx.lineTo(x,y); }); } else { ctx.moveTo(0,height/2); ctx.lineTo(width,height/2); } ctx.stroke(); }
-drawWave(); window.addEventListener('beforeunload', stopMic);
+initVoice(window.jarvis);
 
 document.addEventListener('visibilitychange', () => document.body.classList.toggle('page-hidden', document.hidden));
