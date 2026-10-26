@@ -1,11 +1,12 @@
 import { loadAssistantConfig } from './config';
 import { Assistant } from './assistant';
 import { app, BrowserWindow, ipcMain, session, systemPreferences } from 'electron';
-import { cpus, freemem, totalmem, uptime, hostname, platform } from 'node:os';
+import { cpus, uptime, hostname, platform } from 'node:os';
 import { readFile, writeFile, mkdir, rename, statfs } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { collectMemory } from './memory';
 import { validateTasks } from './tasks';
 import type { Metrics } from '../shared';
 const exec = promisify(execFile);
@@ -26,7 +27,7 @@ async function metrics(): Promise<Metrics> {
   }
   let storageUsed: number | null = null; let storageTotal: number | null = null;
   try { const disk = await statfs(app.getPath('home')); storageTotal = disk.blocks * disk.bsize; storageUsed = (disk.blocks - disk.bfree) * disk.bsize; } catch { /* Unavailable volumes remain explicitly unknown. */ }
-  return { storageUsed, storageTotal, platform: platform(), hostname: hostname(), cpu: total ? Math.max(0, Math.min(100, (1 - idle / total) * 100)) : 0, memoryUsed: totalmem() - freemem(), memoryTotal: totalmem(), uptime: uptime(), battery, charging };
+  return { storageUsed, storageTotal, platform: platform(), hostname: hostname(), cpu: total ? Math.max(0, Math.min(100, (1 - idle / total) * 100)) : 0, ...await collectMemory(), uptime: uptime(), battery, charging };
 }
 app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler(async (contents, permission, callback, details) => {

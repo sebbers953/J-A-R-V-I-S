@@ -39,14 +39,21 @@ async function updateMetrics() {
   try {
     const m = await window.jarvis.metrics(); el('machine').textContent = m.hostname;
     setGauge('cpu',m.cpu,'LIVE CPU LOAD');
-    setGauge('memory',m.memoryUsed/m.memoryTotal*100,`${(m.memoryUsed/1024**3).toFixed(1)} / ${(m.memoryTotal/1024**3).toFixed(1)} GB`);
+    const validMemory = m.memoryUsed !== null && Number.isFinite(m.memoryUsed) && m.memoryUsed >= 0 && Number.isFinite(m.memoryTotal) && m.memoryTotal > 0 && m.memoryUsed <= m.memoryTotal;
+    setGauge('memory', validMemory ? m.memoryUsed! / m.memoryTotal * 100 : null, validMemory ? `${(m.memoryUsed!/1024**3).toFixed(1)} / ${Number((m.memoryTotal/1024**3).toFixed(1))} GB` : 'UNAVAILABLE');
+    const gb = (value: number | null | undefined) => value == null ? 'unavailable' : `${(value/1024**3).toFixed(2)} GB`;
+    el('memory-gauge').title = `Used: app (anonymous minus purgeable) + wired + physical compressor. Cached: ${gb(m.memoryCached)}; compressed: ${gb(m.memoryCompressed)}; wired: ${gb(m.memoryWired)}; swap: ${gb(m.memorySwap)} (separate). Binary GB (GiB).`;
+    const pressure = m.memoryPressure;
+    el('memory-detail').title = el('memory-gauge').title;
+    el('telemetry-status').style.color = pressure ? ({green:'#71cf9a',yellow:'#efc568',red:'#ee7979'})[pressure] : '';
+
     setGauge('storage',m.storageTotal && m.storageUsed !== null ? m.storageUsed/m.storageTotal*100 : null,m.storageTotal && m.storageUsed !== null ? `${Math.round(m.storageUsed/1024**3)} / ${Math.round(m.storageTotal/1024**3)} GB` : 'UNAVAILABLE');
     el('platform').textContent = m.platform === 'darwin' ? 'macOS' : m.platform.toUpperCase();
     el('uptime').textContent = `${Math.floor(m.uptime/3600)}H ${Math.floor(m.uptime%3600/60)}M`;
     el('battery').textContent = m.battery === null ? 'AC / UNAVAILABLE' : `${m.battery}% · ${m.charging ? 'AC POWER' : 'ON BATTERY'}`;
     el('battery-bar').style.width = `${m.battery ?? 0}%`;
-    el('telemetry-status').textContent = 'LIVE HOST DATA / 2 SECOND INTERVAL';
-  } catch { el('telemetry-status').textContent = 'Telemetry unavailable · retrying…'; }
+    el('telemetry-status').textContent = `LIVE / 2 SEC · RAM ${validMemory ? 'USED' : 'UNAVAILABLE'} · PRESSURE ${pressure?.toUpperCase() ?? 'UNAVAILABLE'}`;
+  } catch { setGauge('memory',null,'UNAVAILABLE'); el('memory-gauge').title = ''; el('memory-detail').title = ''; el('telemetry-status').style.color = ''; el('telemetry-status').textContent = 'Telemetry unavailable · retrying…'; }
 }
 void updateMetrics(); setInterval(() => void updateMetrics(), 2000);
 initVoice(window.jarvis);
