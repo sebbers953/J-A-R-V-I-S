@@ -1,3 +1,4 @@
+import { GrokHttpError } from './grok-http';
 export type Stage = 'transcription' | 'response' | 'tts';
 export type FailureKind = 'model_unavailable' | 'local_setup_required' | 'local_runtime_failed' | 'authentication' | 'payment_required' | 'permission' | 'not_found' | 'invalid_request' | 'rate_limit' | 'server' | 'timeout' | 'network' | 'invalid_response' | 'response_too_large' | 'cancelled' | 'unknown';
 const kinds: FailureKind[] = ['model_unavailable','local_setup_required','local_runtime_failed','authentication','payment_required','permission','not_found','invalid_request','rate_limit','server','timeout','network','invalid_response','response_too_large','cancelled','unknown'];
@@ -21,6 +22,7 @@ export function stageLabel(stage: Stage): string {
   return stage === 'transcription' ? 'Local speech-to-text' : stage === 'response' ? 'Grok response' : 'Local text-to-speech';
 }
 export function failureMessage(stage: Stage, error: unknown): string {
+  if(stage==='response' && error instanceof GrokHttpError)return `Grok ${error.operation==='catalog'?'model catalog':'response'} failed (HTTP ${error.status}): ${error.body || '[empty API error body]'}`;
   const {kind,status}=failureInfo(error);
   const hints: Record<FailureKind,string> = {
     model_unavailable:'no compatible chat model is listed for this key; check xAI model access or GROK_MODEL',

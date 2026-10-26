@@ -69,7 +69,7 @@ npm run build
 npm start
 ```
 
-Restart JARVIS after editing settings. Credentials are read only in Electron main, removed from the inherited environment before the renderer starts, and are not forwarded to local speech processes. No key, transcript, reply, audio, subprocess output, or raw provider error is logged. ONNX telemetry is disabled and runtime cloud-model fetching is disabled. Setup downloads public model artifacts; it does not send user audio to any endpoint.
+Restart JARVIS after editing settings. Credentials are read only in Electron main, removed from the inherited environment before the renderer starts, and are not forwarded to local speech processes. Keys, audio and subprocess output are never logged. Ordinary request summaries omit conversation text. Grok HTTP error bodies are now shown after credential redaction, as requested; providers may echo input text in an error body, so keep diagnostic output private. ONNX telemetry is disabled and runtime cloud-model fetching is disabled. Setup downloads public model artifacts; it does not send user audio to any endpoint.
 
 ## Using the HUD
 
@@ -77,9 +77,9 @@ Click the microphone to begin **LISTENING**, speak, then click **Send utterance*
 
 States: **IDLE → LISTENING → PROCESSING → SPEAKING → IDLE**. PROCESSING covers local transcription and Grok's response. Input tracks stop before processing and stay off throughout playback, preventing self-transcription. Clicking the microphone while processing or speaking cancels the turn and mutes. The existing waveform uses real microphone samples and then real playback samples; the existing core pulses with output audio. No always-on listening or wake phrase is enabled.
 
-The exact Grok response text is displayed and passed to local Kokoro, whose WAV plays through your default Mac output device. Three recent exchanges stay visible; ten exchanges remain in session memory and clear on restart. Grok uses the official `@xai-official/sdk`, the xAI Responses API with `grok-4.20-0309-non-reasoning` preferred, `store: false`, and the existing concise JARVIS personality. No computer-control tools are enabled.
+The exact Grok response text is displayed and passed to local Kokoro, whose WAV plays through your default Mac output device. Three recent exchanges stay visible; ten exchanges remain in session memory and clear on restart. Grok uses the official `@xai-official/sdk` for model discovery and an explicit HTTP request to the xAI Responses API with `grok-4.20-0309-non-reasoning` preferred, `store: false`, and the existing concise JARVIS personality. No computer-control tools are enabled.
 
-Microphone permission failure shows **MICROPHONE PERMISSION REQUIRED**. Allow Electron in System Settings → Privacy & Security → Microphone. Missing Grok credentials show **CONFIGURATION REQUIRED**, without breaking the rest of the HUD. Missing local tools/models show **Local speech-to-text** or **Local text-to-speech** setup errors directing you to `npm run setup:voice`. Grok failures are separately labeled. A TTS failure retains Grok's visible text and conversation context. Safe terminal logs contain stage, engine, timing and normalized error category only.
+Microphone permission failure shows **MICROPHONE PERMISSION REQUIRED**. Allow Electron in System Settings → Privacy & Security → Microphone. Missing Grok credentials show **CONFIGURATION REQUIRED**, without breaking the rest of the HUD. Missing local tools/models show **Local speech-to-text** or **Local text-to-speech** setup errors directing you to `npm run setup:voice`. Grok failures are separately labeled. A TTS failure retains Grok's visible text and conversation context. Terminal logs contain safe stage metadata, a request-parameter summary with conversation text omitted, and credential-redacted Grok HTTP error bodies.
 
 Temporary audio/transcript files live in private OS temporary directories and are deleted after success, cancellation or failure. They are never added to the Daily Tasks database. Text goes to Kokoro over stdin, not in process arguments. Local programs run without a shell; their raw output is discarded. Forced app termination/power loss may leave an OS temporary directory, which can be removed normally.
 
@@ -119,3 +119,33 @@ The previous request pinned `grok-4.7` and sent `reasoning.effort=low` unconditi
 On the first response in a session, the app reads `/v1/models` with the existing key and selects the first listed chat model in this order: `grok-4.20-0309-non-reasoning`, `grok-4.3`, `grok-4.6`, `grok-4.7`. The selection is cached for that session. If none is listed, it reports model access clearly instead of guessing another model. A key whose catalog access is denied (403/404) can still attempt inference with the preferred/configured model; other catalog failures remain visible. No automatic repeated inference or paid fallback calls are made.
 
 Optional `GROK_MODEL` in the local `.env` selects a specific account-listed model without modifying the key or source. It is not required; keep your existing `.env` unchanged to use automatic selection. Model availability in a catalog is not proof of remaining account credits or inference permission: the authenticated response call on your Mac is the final access check. Logs contain only selection status, never credentials or account catalog contents.
+
+
+## Inspecting the actual Grok wire request and error
+
+The installed xAI SDK's `responses.create()` automatically adds `include: ["reasoning.encrypted_content"]` whenever `store: false` is set; it can also rewrite reasoning-related HTTP 400 messages. The previous tests asserted the model and app-supplied fields but did not reject SDK-added fields. A regression test now demonstrates this mutation against the actual installed SDK, and asserts that the production request has exactly the five explicitly supplied fields.
+
+JARVIS now sends the Responses request directly as JSON, avoiding that SDK mutation. It retains the same endpoint, selected model and Bearer authorization, session messages, output limit, and privacy settings:
+
+```json
+{
+  "model": "<existing account-selected model>",
+  "input": [{"role": "system", "content": "<personality>"}, {"role": "user", "content": "<transcript>"}],
+  "max_output_tokens": 2048,
+  "store": false,
+  "stream": false
+}
+```
+
+The SDK is still used for model discovery; no API key or `.env` setting is changed. There is no `include` or `reasoning` option, no endpoint/model guessing on HTTP 400, and no automatic inference retry. Whisper, Kokoro, the renderer, and HUD design are unchanged. The schema is defined by the installed official SDK's Responses types and [xAI's Responses API](https://docs.x.ai/developers/api-reference/responses).
+
+For a local live diagnosis without microphone or speech engines:
+
+```bash
+npm run build
+npm run diagnose:grok
+```
+
+This reads the existing local configuration and sends one fixed, short text prompt to the same selected model/endpoint used by JARVIS (normal Grok API charges may apply). `grok_request` shows the actual wire parameters with conversation contents omitted; it never logs Authorization headers. `grok_http_error` captures the **original complete response body**, including error message, code, parameter and extra fields, before SDK rewriting, with the API key/Bearer values and credential fields redacted. The existing HUD error area also displays that redacted body when a voice turn fails. Non-JSON bodies are retained too. Bodies exceeding the explicit 2 MB safety limit are reported as not captured rather than silently truncated. Errors are never replaced with a guessed model-support explanation when an HTTP body is available.
+
+The hidden SDK field is a verified request difference, **not proof of the cause of a particular Mac's live 400**. Prior versions discarded that response body, and this cloud task cannot retrieve historical responses or authenticate as your Mac. The live diagnostic is the remaining check: if it fails, its redacted response body identifies the server's actual rejection. No credentials should be shared to perform that check.
