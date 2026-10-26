@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, session, systemPreferences } from 'electron';
 import { cpus, freemem, totalmem, uptime, hostname, platform } from 'node:os';
-import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, rename, statfs } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -18,7 +18,9 @@ async function metrics(): Promise<Metrics> {
   if (process.platform === 'darwin') {
     try { const { stdout } = await exec('/usr/bin/pmset', ['-g', 'batt'], { timeout: 1500 }); const match = stdout.match(/(\d+)%;/); battery = match ? Number(match[1]) : null; charging = battery === null ? null : /AC Power/.test(stdout); } catch { /* Desktop Macs may not have a battery. */ }
   }
-  return { platform: platform(), hostname: hostname(), cpu: total ? Math.max(0, Math.min(100, (1 - idle / total) * 100)) : 0, memoryUsed: totalmem() - freemem(), memoryTotal: totalmem(), uptime: uptime(), battery, charging };
+  let storageUsed: number | null = null; let storageTotal: number | null = null;
+  try { const disk = await statfs(app.getPath('home')); storageTotal = disk.blocks * disk.bsize; storageUsed = (disk.blocks - disk.bfree) * disk.bsize; } catch { /* Unavailable volumes remain explicitly unknown. */ }
+  return { storageUsed, storageTotal, platform: platform(), hostname: hostname(), cpu: total ? Math.max(0, Math.min(100, (1 - idle / total) * 100)) : 0, memoryUsed: totalmem() - freemem(), memoryTotal: totalmem(), uptime: uptime(), battery, charging };
 }
 app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler(async (contents, permission, callback, details) => {
