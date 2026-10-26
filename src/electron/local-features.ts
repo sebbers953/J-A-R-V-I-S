@@ -1,3 +1,4 @@
+import type { NetworkService } from './network/service';
 import { randomUUID } from 'node:crypto';
 import { MemoryStore, LocalInputError, safeMemoryText } from './memory-store';
 import { ActionRunner, parseAction, validateAction, commandText } from './actions';
@@ -8,7 +9,7 @@ export interface FeatureHost {
 }
 export interface TurnFeatures {
   readonly revision: number;
-  voice(text:string,signal:AbortSignal):Promise<{text:string;proposal?:Proposal;error?:boolean}|null>;
+  voice(text:string,signal:AbortSignal):Promise<{text:string;proposal?:Proposal;error?:boolean;view?:'network'}|null>;
   context(text:string):string;
   cancel():void;
 }
@@ -18,7 +19,7 @@ const input = (value:unknown,max=2000) => {
 export class LocalFeatures implements TurnFeatures {
   revision=0;
   private pending: {proposal:Proposal;expires:number;run:(signal:AbortSignal)=>Promise<string>}|null=null;
-  constructor(readonly memory:MemoryStore,readonly actions:ActionRunner,private host:FeatureHost) {}
+  constructor(readonly memory:MemoryStore,readonly actions:ActionRunner,private host:FeatureHost,private network?:NetworkService) {}
   cancel(){this.pending=null;}
   context(text:string){return this.memory.context(text);}
   private propose(description:string,run:(signal:AbortSignal)=>Promise<string>):ControlResult {
@@ -40,6 +41,7 @@ export class LocalFeatures implements TurnFeatures {
         const text=await pending.run(signal);return this.status(text);
       }
       switch(q.kind) {
+        case 'network':if(!this.network)throw new LocalInputError('Network module is unavailable.');return await this.network.command(q.request,signal,(description,run)=>this.propose(description,run));
         case 'memory-list':return this.status();
         case 'memory-enabled': if(typeof q.enabled!=='boolean')throw new LocalInputError('Invalid memory setting.');this.memory.setEnabled(q.enabled);this.revision++;this.cancel();return this.status(q.enabled?'Memory enabled. Only explicit saves are stored.':'Memory disabled. Stored notes are excluded from conversations; you may still inspect, export or delete them.');
         case 'memory-save': {
@@ -85,6 +87,8 @@ export class LocalFeatures implements TurnFeatures {
     const text=commandText(raw);
     let m:RegExpMatchArray|null;
     try {
+      const extension=await this.network?.voice(text,signal,(description,run)=>this.propose(description,run));
+      if(extension)return {text:extension.text,proposal:extension.proposal,error:!extension.ok,view:extension.view};
       let q:ControlRequest|undefined;
       if((m=text.match(/^remember (?:that\s+|(?:(preference|project|summary)\s*:\s*))(.+)$/i))) q={kind:'memory-save',category:(m[1]?.toLowerCase()??'fact') as 'fact'|'preference'|'project'|'summary',text:m[2]};
       else if((m=text.match(/^forget (?:that\s+)?(.+)$/i))) {
@@ -113,7 +117,7 @@ export const unavailableFeatures:TurnFeatures={
   async voice(text) {
     const command=commandText(text);
     try {
-      if(/^(?:remember|forget|enable memory|disable memory|what do you remember|what were we working on)/i.test(command)||parseAction(command))
+      if(/^(?:scan|turn on|turn off|show connected devices|stop (?:the )?network scan|remember|forget|enable memory|disable memory|what do you remember|what were we working on)/i.test(command)||parseAction(command))
         return {text:'Local memory and controls are unavailable. Check local storage permissions and restart; nothing was saved or executed.',error:true};
     }catch{return {text:'Local command is unavailable; nothing was executed.',error:true};}
     return null;

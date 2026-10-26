@@ -53,10 +53,10 @@ export class Assistant {
         const bytes = Buffer.from(await this.client.speak(text, controller.signal));
         if (controller.signal.aborted) return { ok: false, message: 'Cancelled.' };
         success();
-        return { ok: true, user, text, proposal, audio: bytes.toString('base64') };
+        return { ok: true, user, text, proposal, view:local?.view, audio: bytes.toString('base64') };
       } catch (error) {
         logStage(turn,stage,controller.signal.aborted?'cancelled':'failed',Date.now()-started,error);
-        return controller.signal.aborted ? { ok: false, message: 'Cancelled.' } : { ok: true, user, text, proposal, audio: null, warning: `${failureMessage('tts',error)} Response shown below.` };
+        return controller.signal.aborted ? { ok: false, message: 'Cancelled.' } : { ok: true, user, text, proposal, view:local?.view, audio: null, warning: `${failureMessage('tts',error)} Response shown below.` };
       }
     } catch (error) {
       logStage(turn,stage,controller.signal.aborted?'cancelled':'failed',Date.now()-started,error);

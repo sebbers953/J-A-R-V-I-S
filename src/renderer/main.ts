@@ -1,4 +1,5 @@
 import './style.css';
+import { initNetwork } from './network';
 import { layout } from './layout';
 import { initControls } from './controls';
 import { initVoice } from './voice';
@@ -10,14 +11,17 @@ const el=(id:string)=>document.getElementById(id)!;
 const systemPanel=el('system-panel'),taskPanel=el('tasks-panel');
 el('home-system-slot').append(systemPanel);el('home-tasks-slot').append(taskPanel);
 const voice=initVoice(window.jarvis),controls=initControls(window.jarvis);
+const networkModule=initNetwork(window.jarvis,controls.request);
 const visual=connectCoreToHud(el('moon-host'),window.jarvis?.onWindowVisibility);
 let nativeVisible=true;
 const unsubscribe=window.jarvis?.onWindowVisibility?.(visible=>{nativeVisible=visible;if(visible){void updateMetrics();void updateHealth();}});
-window.addEventListener('beforeunload',()=>{visual.destroy();unsubscribe?.();});
-let route='home';
-function navigate(next:string){
+window.addEventListener('beforeunload',()=>{networkModule.close();visual.destroy();unsubscribe?.();});
+let route='home',systemNetwork=false;
+function showSystemNetwork(network:boolean){systemNetwork=network;el('system-host').hidden=network;el('network-module').hidden=!network;el('system-host-tab').setAttribute('aria-pressed',String(!network));el('system-network-tab').setAttribute('aria-pressed',String(network));networkModule.visibility(route==='system'&&network);}
+el('system-host-tab').onclick=()=>showSystemNetwork(false);el('system-network-tab').onclick=()=>showSystemNetwork(true);
+function navigate(next:string,preserveVoice=false){
   if(!['home','memory','tasks','system','history','settings'].includes(next)||next===route)return;
-  voice.pause();route=next;document.body.dataset.route=next;
+  if(!preserveVoice)voice.pause();route=next;document.body.dataset.route=next;
   for(const view of document.querySelectorAll<HTMLElement>('.view'))view.hidden=view.id!==`view-${next}`;
   for(const button of document.querySelectorAll<HTMLButtonElement>('[data-route]')){if(button.dataset.route===next)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');}
   el('section-label').textContent=next==='home'?'PERSONAL DESKTOP ASSISTANT':`${next.toUpperCase()} / LOCAL WORKSPACE`;
@@ -25,6 +29,7 @@ function navigate(next:string){
   (el(next==='tasks'?'tasks-slot':'home-tasks-slot')).append(taskPanel);
   (el('task-form') as HTMLFormElement).hidden=next!=='tasks';
   if(next==='memory'||next==='settings')setTimeout(()=>void controls.refresh(),180);
+  networkModule.visibility(next==='system'&&systemNetwork);
   const heading=el(`view-${next}`).querySelector<HTMLElement>('h1');if(heading){heading.tabIndex=-1;heading.focus({preventScroll:true});}
 }
 for(const button of document.querySelectorAll<HTMLButtonElement>('[data-route]'))button.onclick=()=>navigate(button.dataset.route!);
@@ -109,3 +114,5 @@ window.addEventListener('jarvis-transcript',event=>{
 });
 window.addEventListener('jarvis-turn-complete',event=>{const elapsed=(event as CustomEvent<number>).detail;el('turn-time').textContent=Number.isFinite(elapsed)?`${(elapsed/1000).toFixed(1)}s`:'—';});
 document.addEventListener('visibilitychange',()=>{if(!document.hidden){void updateMetrics();void updateHealth();}});
+
+window.addEventListener('jarvis-network-view',()=>{navigate('system',true);showSystemNetwork(true);networkModule.live();});

@@ -205,3 +205,79 @@ npm start
 ```
 
 Leave your existing Ollama service running. If it is stopped, run `npm run start:ollama` in a separate terminal. Do not start a duplicate daemon or reinstall working speech engines. No `.env` edits, API credentials or new speech/model downloads are required for V2.
+
+## Optional Network Radar and Home Assistant
+
+Open **SYSTEM → Network Radar**. The existing six-section V2 HUD, moon core, local voice services and storage remain in place. No network discovery or smart-home integration starts on launch. **Preview demo** creates clearly labelled simulated nodes using documentation-only `192.0.2.x` addresses. Demo data never enters main-process device state, voice queries, live discovery or smart control. Switching to demo first stops any live session; use **Live view** before live operations.
+
+### Authorized local discovery
+
+Choose a private IPv4 interface, check that you own/are authorized to use it, then start a 60-second session. Passive mode listens for mDNS/Bonjour and SSDP announcements without sending discovery queries. The separate active checkbox permits a single SSDP M-SEARCH multicast request and at most twelve DNS-SD/mDNS queries during the first eight seconds on that interface. There are no address sweeps, ping sweeps, TCP port scans, public ranges, XML/SSDP LOCATION fetches, authentication attempts or exploitation. IPv6-only, link-local-only and typical VPN/tunnel interfaces are not supported in this version.
+
+The main-process service uses `multicast-dns` and Node UDP on standard mDNS `224.0.0.251:5353` and SSDP `239.255.255.250:1900`, bound to the selected interface for multicast membership/transmission. On-link private source addresses are required. mDNS A records must match the packet sender, avoiding false online status from third-party cached addresses. SSDP device classes are labelled self-advertised; hostname/device types are otherwise unknown. Untrusted TXT records, URLs and capabilities are not followed.
+
+Online means **a recent local protocol announcement was received**, not an authenticated health check. Freshness is bounded by advertised TTL and a maximum of 45 seconds. An explicit protocol departure is labelled offline/reported; a quiet, expired, stopped, or changed-network observation becomes **unknown**, never assumed offline or online. The reachability count is deliberately labelled “recently observed”; there is no invented direct reachability or latency measurement. MAC addresses are optional **existing ARP-cache metadata**, read only when you click that button on macOS, and never establish online status. Device positions on the radar are illustrative and do not measure distance/location.
+
+A single service is shared by voice and UI; repeated start requests do not create duplicates. It stops automatically after 60 seconds, when a selected interface/address/netmask change is detected, when the app window hides/minimizes, or when you click Stop/pause. Stop has a narrow independent IPC path so it remains available while another assistant/control request is busy. Cached observations are session-only, bounded to 128 IPs, and are not automatically saved as personal memory. The list shows all records; the canvas draws at most 80 markers. A sidebar indicator stays visible during a live session. Unchecking authorization revokes the selected scope immediately; changing interface/probing choice requires fresh authorization. To restart a paused session, explicitly start another session; changing network never silently authorizes a new one.
+
+On macOS, allow the development **Electron** application under **System Settings → Privacy & Security → Local Network** if requested. Firewalls, Wi-Fi client isolation/VLANs, sleeping devices and multicast filtering can prevent discovery. Empty results do not prove an empty network. A future packaged Mac app should supply an appropriate `NSLocalNetworkUsageDescription` (and Bonjour service declarations when applicable) under its own bundle identity. This development project does not rewrite or re-sign your installed Electron bundle. Actual M4 permission/discovery behavior still needs testing on your Mac; UDP bind/membership errors are reported safely.
+
+Voice commands use the existing deterministic dispatcher:
+
+- “JARVIS, scan my local network.” — requires a previously authorized interface, then an explicit HUD confirmation; uses the selected passive/active mode.
+- “JARVIS, show connected devices.” — opens live Network Radar (not the demo) and reports real observations. Continuous capture stops before changing sections.
+- “JARVIS, stop the network scan.” — stops discovery and invalidates cached online state.
+- “JARVIS, is [exact hostname/IP or approved light alias] online?” — reports recent protocol evidence or Home Assistant's current report, never inferred device health.
+- “JARVIS, turn on/off my desk lights.” — only when the exact light alias is locally configured, integration is enabled, and the HUD confirmation is approved.
+
+### Independently configured Home Assistant lights
+
+Only Home Assistant's supported [REST API](https://developers.home-assistant.io/docs/api/rest/) is used: `GET /api/states/<approved-light-id>` and `POST /api/services/light/turn_on` or `turn_off`, with a bearer token kept exclusively in the main process. Discovery is not required to configure/use this integration. No raw discovered device can acquire control capabilities or become an approved light automatically.
+
+Configure a private local JSON file **outside the repository**, for example `~/Library/Application Support/JARVIS/home-assistant-import.json`. Set file permissions to 600. This schema contains **placeholders only**; put your real token in the file locally using an editor, never in chat, shell arguments or Git:
+
+```json
+{
+  "url": "https://homeassistant.local:8123",
+  "token": "YOUR_LOCAL_HOME_ASSISTANT_TOKEN_HERE",
+  "lights": [
+    { "id": "light.desk", "name": "Desk lights" }
+  ]
+}
+```
+
+Use a dedicated appropriately restricted Home Assistant user/token where practical. Explicitly review each entity/alias. At most sixteen unique `light.*` entities are supported. Locks, switches, cameras, alarms, doors, thermostats, arbitrary services and scripts are refused. Even light actions may trigger automations: every control action requires a single-use, expiring HUD confirmation. Enable/disable and configuration changes invalidate pending light actions.
+
+In **Network Radar**, click **Import local configuration** and choose that file in the native picker. Its contents never pass through renderer IPC or a token input field. Electron `safeStorage` encrypts the configuration into `app.getPath('userData')/home-assistant.enc` (mode 600; macOS OS/Keychain-backed encryption). Plaintext fallback such as Linux `basic_text` is refused. Importing does **not** enable requests. After a successful encrypted import, delete the original plaintext import file yourself. Backups of that original file are outside the app's control. `.env` is unchanged; no new environment secrets are required. Default import names and encrypted files are Git-ignored as an additional precaution.
+
+Click **Enable integration**, then **Refresh approved lights** to read state. There is no automatic HA polling or service call. A fresh HA report is distinct from network reachability: the app cannot independently prove that physical hardware is online. Reports age to unknown after 45 seconds. State failures, authorization/TLS failures and cancelled requests never become fabricated success.
+
+Local destinations are restricted to private IPv4, localhost, `.local` and `.home.arpa` names resolving to private IPv4. DNS results are checked and the connection is pinned to that checked address, retaining the original TLS SNI/Host. Redirects and public destinations are refused. LAN endpoints require HTTPS with a certificate trusted by the Node TLS runtime; self-signed certificates are never silently bypassed. For a private CA, configure trust locally (for example `NODE_EXTRA_CA_CERTS=/absolute/path/local-ca.pem npm start`). HTTP is allowed only for loopback/local proxies at localhost/127.0.0.1, never across the LAN. The common default `http://homeassistant.local:8123` must be secured with trusted HTTPS or a local proxy before use here. No Home Assistant proxy/server is installed automatically.
+
+A successful service HTTP response is not proof of action completion. The adapter first reads the exact entity, sends at most one on/off service request, then checks fresh state (up to three bounded reads). It reports success only when HA returns the requested state, qualifying that physical hardware is not independently verified. If already in the requested state, it explicitly says no service call was made. Disabling aborts integration requests and clears in-memory credentials; removal requires confirmation and deletes the encrypted configuration. The app never logs tokens, raw API bodies or integration errors that could contain credentials.
+
+### Radar performance and validation scope
+
+Radar uses one lightweight Canvas 2D surface at at most 24 fps. It is static when stopped, pauses when offscreen/hidden/minimized and respects reduced motion. Status refresh runs every three seconds only while the panel is open or discovery is active, pauses when the app is hidden, and reads existing main-process state rather than sending discovery packets. No extra Ollama, Whisper or Kokoro instances are launched. Credentials, light state and LAN device state are separate from durable personal memory.
+
+After updating, run inside the repository:
+
+```bash
+npm ci
+npm run typecheck
+npm run build
+npm test
+npm start
+```
+
+Existing Ollama/service/speech setup and `.env` remain unchanged. Additional checks are `node scripts/network-ui.cjs` (with Vite preview on port 4173), `npm run test:smoke` and `npm run test:electron`. Network tests use injected UDP transports and synthetic packets; smart-home tests use a fake adapter and a real **loopback test server**, not physical devices. No live LAN packets are sent by those discovery tests. Browser data is clearly marked demo/fixture. Actual Bonjour/SSDP discovery, MAC availability, OS Keychain/local-network permissions, HA TLS/token permissions, physical light effects, and CPU/GPU behavior alongside real inference on your M4 must be manually verified before claiming live support works there.
+
+Implementation file inventory for this upgrade:
+
+- Discovery/integration: `src/electron/network/address.ts`, `device-store.ts`, `discovery.ts`, `credentials.ts`, `home-assistant.ts`, `service.ts`.
+- Main/voice/IPC integration: `src/electron/assistant.ts`, `local-features.ts`, `main.ts`, `preload.ts`, plus `src/shared.ts`.
+- Presentation: `src/renderer/network.ts`, `network-radar.ts`, `layout.ts`, `main.ts`, `controls.ts`, `voice.ts`, `style.css`.
+- Validation: `scripts/network.test.cjs`, `network-service.test.cjs`, `smart-home.test.cjs`, `network-ui.cjs`, `electron-smoke.cjs`, `smoke.cjs`.
+- Dependencies/documentation: `package.json`, `package-lock.json`, `.gitignore`, `README.md`.
+
+Discovery scope is an interface/private IPv4 subnet, not an authenticated SSID identity. A Wi-Fi change that preserves the same interface, address and netmask may not be detectable by the portable OS interface watcher. Stop/revoke discovery before switching networks and authorize again on the new network. Active query transmission is limited to the initial eight-second window; no later background probing is scheduled.

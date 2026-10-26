@@ -86,6 +86,14 @@ fs.writeFileSync(fixturePath,wav);
  await page.evaluate(()=>{window.jarvis.assistantTurn=async()=>({ok:false,message:'Connection or API unavailable. Please try again.'});});
  await page.locator('#microphone').click();await page.locator('#mic-status').filter({hasText:'LISTENING'}).waitFor();await page.waitForTimeout(350);await page.locator('#send-voice').click();
  await page.locator('#assistant-message').filter({hasText:'Connection or API unavailable'}).waitFor();assert.equal(await page.locator('#core-status').innerText(),'ERROR');
+ // Voice-only navigation must show live observations, stop continuous capture,
+ // and preserve the current spoken reply without reopening a hidden microphone.
+ await page.evaluate(()=>{window.jarvis.assistantTurn=async()=>({...await window.originalTurn(),user:'Show connected devices',text:'No live devices are observed in this fixture.',view:'network'});});
+ await page.locator('#continuous-voice').check();await page.locator('#microphone').click();await page.waitForTimeout(500);await page.locator('#send-voice').click();
+ await page.locator('#network-module').waitFor();await page.waitForFunction(()=>document.body.dataset.voice==='speaking');
+ assert.equal(await page.locator('#network-module').getAttribute('data-mode'),'live');assert.equal(await page.locator('#continuous-voice').isChecked(),false);
+ assert(await page.evaluate(()=>window.testStreams.every(stream=>stream.getTracks().every(track=>track.readyState==='ended'))));
+ await page.waitForFunction(()=>document.body.dataset.voice==='idle');await page.locator('[data-route=home]').click();
  await page.locator('[data-route=history]').click();assert(await page.locator('#history-log .history-turn').count()>0);await page.locator('[data-route=home]').click();
  await page.getByLabel('Delete Run system diagnostics').click(); await page.reload(); await page.locator('#task-list .empty').waitFor();
  await page.setViewportSize({width:390,height:844}); assert(await page.evaluate(()=>document.documentElement.scrollWidth <= innerWidth));

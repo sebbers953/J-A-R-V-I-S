@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { JarvisAPI } from '../shared';
 const api: JarvisAPI = {
+  networkStatus:()=>ipcRenderer.invoke('network:status'),networkStop:revoke=>ipcRenderer.invoke('network:stop',revoke),
   assistantHealth:()=>ipcRenderer.invoke('assistant:health'),
   onWindowVisibility(callback) {
     if(typeof callback!=='function')throw new Error('Invalid visibility listener');

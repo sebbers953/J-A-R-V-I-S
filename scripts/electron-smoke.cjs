@@ -14,6 +14,8 @@ const fs=require('node:fs');const os=require('node:os');const path=require('node
  await page.reload();
  await page.locator('#assistant-message').filter({hasText:'Ollama'}).waitFor();
  assert.equal(await page.evaluate(async()=> (await window.jarvis.assistantStatus()).configured),true);
+ const network=await page.evaluate(()=>window.jarvis.networkStatus());assert.equal(network.running,false);assert.equal(network.configured,false);assert.equal(network.smart.enabled,false);assert.equal(network.devices.length,0);
+ const stopped=await page.evaluate(()=>window.jarvis.networkStop());assert.equal(stopped.ok,true);assert.equal(stopped.network.running,false);assert(await page.evaluate(()=>window.jarvis.networkStop('invalid').then(()=>false,()=>true)));
  const metrics=await page.evaluate(()=>window.jarvis.metrics());assert(metrics.memoryTotal>0);assert(metrics.storageTotal>0);assert(metrics.uptime>0);
  await page.locator('#show-task-form').click();await page.locator('#task-input').fill('Electron startup check');await page.locator('#task-form button').click();await page.getByLabel('Complete Electron startup check').check();
  await page.locator('#task-status').filter({hasText:'All objectives saved locally.'}).waitFor();
@@ -61,7 +63,7 @@ const fs=require('node:fs');const os=require('node:os');const path=require('node
  // A second BrowserWindow has the same preload but is not the authorized HUD.
  const denied=await app.evaluate(async({BrowserWindow},preload)=>{
   const other=new BrowserWindow({show:false,webPreferences:{preload,contextIsolation:true,nodeIntegration:false,sandbox:true}});
-  try {await other.loadURL('about:blank');return await other.webContents.executeJavaScript(`Promise.all([window.jarvis.control({kind:'memory-list'}),window.jarvis.assistantHealth()].map(p=>p.then(()=>false,()=>true))).then(results=>results.every(Boolean))`);}finally{other.destroy();}
+  try {await other.loadURL('about:blank');return await other.webContents.executeJavaScript(`Promise.all([window.jarvis.control({kind:'memory-list'}),window.jarvis.assistantHealth(),window.jarvis.networkStatus(),window.jarvis.networkStop()].map(p=>p.then(()=>false,()=>true))).then(results=>results.every(Boolean))`);}finally{other.destroy();}
  },path.resolve(__dirname,'../dist/electron/electron/preload.js'));
  assert(denied,'IPC from an unrelated window must be rejected');
  assert.equal(await page.evaluate(()=>typeof window.require),'undefined');

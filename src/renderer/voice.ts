@@ -88,6 +88,7 @@ export function initVoice(api: JarvisAPI | undefined) {
       }
       window.dispatchEvent(new CustomEvent('jarvis-turn-complete',{detail:performance.now()-started}));
       transcript(result.user,result.text);
+      if(result.view==='network'){stopContinuous();window.dispatchEvent(new Event('jarvis-network-view'));}
       deadline=Date.now()+timeoutMs();
       window.dispatchEvent(new CustomEvent('jarvis-result',{detail:result.proposal}));
       window.dispatchEvent(new Event('jarvis-tasks-refresh'));

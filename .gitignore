@@ -18,3 +18,8 @@ __pycache__/
 *.db
 *.db-*
 jarvis-memory-export*.json
+
+# Local smart-home import files and encrypted credentials
+jarvis-home-assistant*.json
+home-assistant*.json
+*.enc

@@ -27,7 +27,7 @@ export function initControls(api:JarvisAPI|undefined) {
     if(token!==generation)return {ok:false,text:'Cancelled.'};
     el('control-message').textContent=q.kind==='memory-list'&&result.ok?'':result.text;
     if(feedback)window.dispatchEvent(new CustomEvent('jarvis-control-result',{detail:{text:result.text,ok:result.ok}}));
-    if(result.proposal)showProposal(result.proposal,q.kind==='action'?'action':'management');
+    if(result.proposal)showProposal(result.proposal,q.kind==='action'||q.kind==='network'?'action':'management');
     if(q.kind==='confirm'){showProposal(undefined);if(q.approved&&result.ok)window.dispatchEvent(new Event('jarvis-action-complete'));}
     if(result.memories){
       const list=el('memory-list');list.replaceChildren();
